@@ -145,8 +145,8 @@ source = string.sub(source, 1, scaleStartPos - 1)
     .. scalePatched
     .. string.sub(source, scaleEndPos)
 
--- Patch 2: Crosshair mobile-safe. Mantem imagem customizada quando funcionar,
--- mas sempre mostra uma mira fallback e nao limita a primeira pessoa.
+-- Patch 2: Crosshair mobile-safe.
+-- Usa imagem customizada se funcionar; sem imagem usa um ponto pequeno estilo PC.
 local crossStartMarker = "local chosenimage = ''"
 local crossEndMarker = "Appearance:AddSection('Customizations')"
 
@@ -161,13 +161,20 @@ local crossPatched = [=[
 local chosenimage = ''
 local crosshairRoot
 local crosshairImage
-local fallbackH
-local fallbackV
+local fallbackDotOuter
+local fallbackDot
 
 local guiParent = game:GetService("CoreGui")
 pcall(function()
     if gethui then
         guiParent = gethui()
+    end
+end)
+
+pcall(function()
+    local old = guiParent:FindFirstChild("BloxstrapCrosshair")
+    if old then
+        old:Destroy()
     end
 end)
 
@@ -179,6 +186,12 @@ screengui.DisplayOrder = 999999
 screengui.Enabled = false
 screengui.Parent = guiParent
 
+local function makeCircle(frame)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(1, 0)
+    corner.Parent = frame
+end
+
 local function ensureCrosshair()
     if crosshairRoot and crosshairRoot.Parent then
         return
@@ -188,37 +201,41 @@ local function ensureCrosshair()
     crosshairRoot.Name = "CrosshairRoot"
     crosshairRoot.AnchorPoint = Vector2.new(0.5, 0.5)
     crosshairRoot.Position = UDim2.new(0.5, 0, 0.5, 0)
-    crosshairRoot.Size = UDim2.new(0, 19, 0, 19)
+    crosshairRoot.Size = UDim2.new(0, 11, 0, 11)
     crosshairRoot.BackgroundTransparency = 1
     crosshairRoot.ZIndex = 100
     crosshairRoot.Parent = screengui
 
     crosshairImage = Instance.new("ImageLabel")
     crosshairImage.Name = "CustomImage"
-    crosshairImage.Size = UDim2.fromScale(1, 1)
+    crosshairImage.AnchorPoint = Vector2.new(0.5, 0.5)
+    crosshairImage.Position = UDim2.fromScale(0.5, 0.5)
+    crosshairImage.Size = UDim2.new(0, 11, 0, 11)
     crosshairImage.BackgroundTransparency = 1
-    crosshairImage.ZIndex = 102
+    crosshairImage.ZIndex = 103
     crosshairImage.Parent = crosshairRoot
 
-    fallbackH = Instance.new("Frame")
-    fallbackH.Name = "FallbackH"
-    fallbackH.AnchorPoint = Vector2.new(0.5, 0.5)
-    fallbackH.Position = UDim2.fromScale(0.5, 0.5)
-    fallbackH.Size = UDim2.new(0, 13, 0, 2)
-    fallbackH.BorderSizePixel = 0
-    fallbackH.BackgroundColor3 = Color3.new(1, 1, 1)
-    fallbackH.ZIndex = 101
-    fallbackH.Parent = crosshairRoot
+    fallbackDotOuter = Instance.new("Frame")
+    fallbackDotOuter.Name = "DotOutline"
+    fallbackDotOuter.AnchorPoint = Vector2.new(0.5, 0.5)
+    fallbackDotOuter.Position = UDim2.fromScale(0.5, 0.5)
+    fallbackDotOuter.Size = UDim2.new(0, 5, 0, 5)
+    fallbackDotOuter.BorderSizePixel = 0
+    fallbackDotOuter.BackgroundColor3 = Color3.new(0, 0, 0)
+    fallbackDotOuter.ZIndex = 101
+    fallbackDotOuter.Parent = crosshairRoot
+    makeCircle(fallbackDotOuter)
 
-    fallbackV = Instance.new("Frame")
-    fallbackV.Name = "FallbackV"
-    fallbackV.AnchorPoint = Vector2.new(0.5, 0.5)
-    fallbackV.Position = UDim2.fromScale(0.5, 0.5)
-    fallbackV.Size = UDim2.new(0, 2, 0, 13)
-    fallbackV.BorderSizePixel = 0
-    fallbackV.BackgroundColor3 = Color3.new(1, 1, 1)
-    fallbackV.ZIndex = 101
-    fallbackV.Parent = crosshairRoot
+    fallbackDot = Instance.new("Frame")
+    fallbackDot.Name = "Dot"
+    fallbackDot.AnchorPoint = Vector2.new(0.5, 0.5)
+    fallbackDot.Position = UDim2.fromScale(0.5, 0.5)
+    fallbackDot.Size = UDim2.new(0, 3, 0, 3)
+    fallbackDot.BorderSizePixel = 0
+    fallbackDot.BackgroundColor3 = Color3.new(1, 1, 1)
+    fallbackDot.ZIndex = 102
+    fallbackDot.Parent = crosshairRoot
+    makeCircle(fallbackDot)
 end
 
 local function refreshCrosshairVisual()
@@ -227,8 +244,8 @@ local function refreshCrosshairVisual()
     local hasImage = type(chosenimage) == "string" and chosenimage ~= ""
     crosshairImage.Image = hasImage and chosenimage or ""
     crosshairImage.Visible = hasImage
-    fallbackH.Visible = not hasImage
-    fallbackV.Visible = not hasImage
+    fallbackDotOuter.Visible = not hasImage
+    fallbackDot.Visible = not hasImage
 end
 
 local function tryLoadCrosshairAsset(path)
@@ -259,7 +276,7 @@ refreshCrosshairVisual()
 
 local crosshair = Appearance:AddToggle({
     Name = "Crosshair",
-    Description = "Always-visible mobile-safe crosshair",
+    Description = "Tiny centered dot, mobile-safe",
     Default = Bloxstrap.Config.Crosshair,
     Callback = function(call)
         Bloxstrap.UpdateConfig("Crosshair", call)
@@ -294,7 +311,7 @@ source = string.sub(source, 1, crossStartPos - 1)
 
 local chunk, err = loadstring(
     source,
-    "Bloxstrap Unlimited GUI Scale + Mobile Crosshair Fix"
+    "Bloxstrap Unlimited GUI Scale + Tiny Dot Crosshair"
 )
 
 if not chunk then
