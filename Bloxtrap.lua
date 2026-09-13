@@ -54,17 +54,18 @@ local source = game:HttpGet(
     true
 )
 
-local startMarker = "local funnycon\nlocal guisets = {}"
-local endMarker = "local touchuuval = 1.2"
+-- Patch 1: GUIScaler sem limite em 0.50.
+local scaleStartMarker = "local funnycon\nlocal guisets = {}"
+local scaleEndMarker = "local touchuuval = 1.2"
 
-local startPos = string.find(source, startMarker, 1, true)
-local endPos = startPos and string.find(source, endMarker, startPos, true)
+local scaleStartPos = string.find(source, scaleStartMarker, 1, true)
+local scaleEndPos = scaleStartPos and string.find(source, scaleEndMarker, scaleStartPos, true)
 
-if not startPos or not endPos then
+if not scaleStartPos or not scaleEndPos then
     error("GUIScaler block not found. Bloxstrap was probably updated.")
 end
 
-local patched = [=[
+local scalePatched = [=[
 local funnycon
 
 local SCALE_STEP = tonumber(getgenv().BloxstrapScaleStep) or 0.25
@@ -140,13 +141,160 @@ local guiscale = Appearance:AddToggle({
 
 ]=]
 
-source = string.sub(source, 1, startPos - 1)
-    .. patched
-    .. string.sub(source, endPos)
+source = string.sub(source, 1, scaleStartPos - 1)
+    .. scalePatched
+    .. string.sub(source, scaleEndPos)
+
+-- Patch 2: Crosshair mobile-safe. Mantem imagem customizada quando funcionar,
+-- mas sempre mostra uma mira fallback e nao limita a primeira pessoa.
+local crossStartMarker = "local chosenimage = ''"
+local crossEndMarker = "Appearance:AddSection('Customizations')"
+
+local crossStartPos = string.find(source, crossStartMarker, 1, true)
+local crossEndPos = crossStartPos and string.find(source, crossEndMarker, crossStartPos, true)
+
+if not crossStartPos or not crossEndPos then
+    error("Crosshair block not found. Bloxstrap was probably updated.")
+end
+
+local crossPatched = [=[
+local chosenimage = ''
+local crosshairRoot
+local crosshairImage
+local fallbackH
+local fallbackV
+
+local guiParent = game:GetService("CoreGui")
+pcall(function()
+    if gethui then
+        guiParent = gethui()
+    end
+end)
+
+local screengui = Instance.new("ScreenGui")
+screengui.Name = "BloxstrapCrosshair"
+screengui.IgnoreGuiInset = true
+screengui.ResetOnSpawn = false
+screengui.DisplayOrder = 999999
+screengui.Enabled = false
+screengui.Parent = guiParent
+
+local function ensureCrosshair()
+    if crosshairRoot and crosshairRoot.Parent then
+        return
+    end
+
+    crosshairRoot = Instance.new("Frame")
+    crosshairRoot.Name = "CrosshairRoot"
+    crosshairRoot.AnchorPoint = Vector2.new(0.5, 0.5)
+    crosshairRoot.Position = UDim2.new(0.5, 0, 0.5, 0)
+    crosshairRoot.Size = UDim2.new(0, 19, 0, 19)
+    crosshairRoot.BackgroundTransparency = 1
+    crosshairRoot.ZIndex = 100
+    crosshairRoot.Parent = screengui
+
+    crosshairImage = Instance.new("ImageLabel")
+    crosshairImage.Name = "CustomImage"
+    crosshairImage.Size = UDim2.fromScale(1, 1)
+    crosshairImage.BackgroundTransparency = 1
+    crosshairImage.ZIndex = 102
+    crosshairImage.Parent = crosshairRoot
+
+    fallbackH = Instance.new("Frame")
+    fallbackH.Name = "FallbackH"
+    fallbackH.AnchorPoint = Vector2.new(0.5, 0.5)
+    fallbackH.Position = UDim2.fromScale(0.5, 0.5)
+    fallbackH.Size = UDim2.new(0, 13, 0, 2)
+    fallbackH.BorderSizePixel = 0
+    fallbackH.BackgroundColor3 = Color3.new(1, 1, 1)
+    fallbackH.ZIndex = 101
+    fallbackH.Parent = crosshairRoot
+
+    fallbackV = Instance.new("Frame")
+    fallbackV.Name = "FallbackV"
+    fallbackV.AnchorPoint = Vector2.new(0.5, 0.5)
+    fallbackV.Position = UDim2.fromScale(0.5, 0.5)
+    fallbackV.Size = UDim2.new(0, 2, 0, 13)
+    fallbackV.BorderSizePixel = 0
+    fallbackV.BackgroundColor3 = Color3.new(1, 1, 1)
+    fallbackV.ZIndex = 101
+    fallbackV.Parent = crosshairRoot
+end
+
+local function refreshCrosshairVisual()
+    ensureCrosshair()
+
+    local hasImage = type(chosenimage) == "string" and chosenimage ~= ""
+    crosshairImage.Image = hasImage and chosenimage or ""
+    crosshairImage.Visible = hasImage
+    fallbackH.Visible = not hasImage
+    fallbackV.Visible = not hasImage
+end
+
+local function tryLoadCrosshairAsset(path)
+    if type(path) ~= "string" or path == "" then
+        return ""
+    end
+
+    local assetFn = getcustomasset or getsynasset
+    if not assetFn then
+        return ""
+    end
+
+    local ok, asset = pcall(assetFn, path)
+    if ok and type(asset) == "string" then
+        return asset
+    end
+
+    return ""
+end
+
+pcall(function()
+    if Bloxstrap.Config.CrosshairImage and Bloxstrap.Config.CrosshairImage ~= "" then
+        chosenimage = tryLoadCrosshairAsset(Bloxstrap.Config.CrosshairImage)
+    end
+end)
+
+refreshCrosshairVisual()
+
+local crosshair = Appearance:AddToggle({
+    Name = "Crosshair",
+    Description = "Always-visible mobile-safe crosshair",
+    Default = Bloxstrap.Config.Crosshair,
+    Callback = function(call)
+        Bloxstrap.UpdateConfig("Crosshair", call)
+        refreshCrosshairVisual()
+        screengui.Enabled = call and true or false
+    end
+})
+
+local imageOptions = {}
+pcall(function()
+    if listfiles then
+        imageOptions = listfiles("Bloxstrap/Images")
+    end
+end)
+
+Appearance:AddDropdown({
+    Name = "Image",
+    Options = imageOptions,
+    Default = Bloxstrap.Config.CrosshairImage,
+    Callback = function(val)
+        Bloxstrap.UpdateConfig("CrosshairImage", val)
+        chosenimage = tryLoadCrosshairAsset(val)
+        refreshCrosshairVisual()
+    end
+})
+
+]=]
+
+source = string.sub(source, 1, crossStartPos - 1)
+    .. crossPatched
+    .. string.sub(source, crossEndPos)
 
 local chunk, err = loadstring(
     source,
-    "Bloxstrap Unlimited GUI Scale"
+    "Bloxstrap Unlimited GUI Scale + Mobile Crosshair Fix"
 )
 
 if not chunk then
