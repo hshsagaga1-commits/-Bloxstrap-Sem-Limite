@@ -43,10 +43,7 @@ local function installMissing()
     end
 
     if not isfile("Bloxstrap/Main/Configs/Default.json") then
-        writefile(
-            "Bloxstrap/Main/Configs/Default.json",
-            "{}"
-        )
+        writefile("Bloxstrap/Main/Configs/Default.json", "{}")
     end
 end
 
@@ -70,9 +67,20 @@ end
 local patched = [=[
 local funnycon
 
-local SCALE_STEP = tonumber(getgenv().BloxstrapScaleStep) or 0.70
+local SCALE_STEP = tonumber(getgenv().BloxstrapScaleStep) or 0.25
+local MIN_SCALE = tonumber(getgenv().BloxstrapMinScale) or 0.01
+
 if SCALE_STEP <= 0 then
-    SCALE_STEP = 0.70
+    SCALE_STEP = 0.25
+end
+
+if MIN_SCALE < 0 then
+    MIN_SCALE = 0.01
+end
+
+local function nextScale(current)
+    current = tonumber(current) or 1
+    return math.max(MIN_SCALE, current - SCALE_STEP)
 end
 
 local function scalePlayerGui(v)
@@ -83,11 +91,11 @@ local function scalePlayerGui(v)
     local oldui = v:FindFirstChildWhichIsA("UIScale", true)
 
     if oldui then
-        oldui.Scale = oldui.Scale * SCALE_STEP
+        oldui.Scale = nextScale(oldui.Scale)
     else
         local uiscale = Instance.new("UIScale")
         uiscale.Name = "__BloxstrapUnlimitedScale"
-        uiscale.Scale = SCALE_STEP
+        uiscale.Scale = nextScale(1)
         uiscale.Parent = v
     end
 end
@@ -109,7 +117,7 @@ end
 
 local guiscale = Appearance:AddToggle({
     Name = "GUIScaler",
-    Description = "Every ON applies another GUI scale step; no fixed lower limit",
+    Description = "1.00 -> 0.75 -> 0.50 -> 0.25 -> almost zero; no 0.50 floor",
     Default = Bloxstrap.Config.GUIScale,
     Callback = function(call)
         Bloxstrap.UpdateConfig("GUIScale", call)
@@ -124,8 +132,7 @@ local guiscale = Appearance:AddToggle({
                 end)
             end)
         else
-            -- Intentionally do NOT restore the previous scale.
-            -- Turn it ON again to apply another multiplicative step.
+            -- Keep the reduced scale. Turning it ON again applies the next -0.25 step.
             disconnectScaler()
         end
     end
