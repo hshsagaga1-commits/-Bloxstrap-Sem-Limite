@@ -54,7 +54,7 @@ local source = game:HttpGet(
     true
 )
 
--- Patch 1: GUIScaler sem limite em 0.50.
+-- Patch 1: GUIScaler continua abaixo de 0.50, mas com passos menores depois disso.
 local scaleStartMarker = "local funnycon\nlocal guisets = {}"
 local scaleEndMarker = "local touchuuval = 1.2"
 
@@ -68,20 +68,35 @@ end
 local scalePatched = [=[
 local funnycon
 
-local SCALE_STEP = tonumber(getgenv().BloxstrapScaleStep) or 0.25
 local MIN_SCALE = tonumber(getgenv().BloxstrapMinScale) or 0.01
-
-if SCALE_STEP <= 0 then
-    SCALE_STEP = 0.25
-end
-
 if MIN_SCALE < 0 then
     MIN_SCALE = 0.01
 end
 
 local function nextScale(current)
     current = tonumber(current) or 1
-    return math.max(MIN_SCALE, current - SCALE_STEP)
+
+    -- Mantem o comportamento conhecido nas duas primeiras reducoes:
+    -- 1.00 -> 0.75 -> 0.50
+    -- Depois desce mais suave, parecido com o video:
+    -- 0.50 -> 0.40 -> 0.30 -> 0.20 -> 0.10 -> 0.05 -> 0.01
+    if current > 0.75 then
+        return 0.75
+    elseif current > 0.50 then
+        return 0.50
+    elseif current > 0.40 then
+        return 0.40
+    elseif current > 0.30 then
+        return 0.30
+    elseif current > 0.20 then
+        return 0.20
+    elseif current > 0.10 then
+        return 0.10
+    elseif current > 0.05 then
+        return 0.05
+    end
+
+    return MIN_SCALE
 end
 
 local function scalePlayerGui(v)
@@ -96,7 +111,7 @@ local function scalePlayerGui(v)
     else
         local uiscale = Instance.new("UIScale")
         uiscale.Name = "__BloxstrapUnlimitedScale"
-        uiscale.Scale = nextScale(1)
+        uiscale.Scale = 0.75
         uiscale.Parent = v
     end
 end
@@ -118,7 +133,7 @@ end
 
 local guiscale = Appearance:AddToggle({
     Name = "GUIScaler",
-    Description = "1.00 -> 0.75 -> 0.50 -> 0.25 -> almost zero; no 0.50 floor",
+    Description = "1.00 -> 0.75 -> 0.50 -> 0.40 -> 0.30 -> 0.20 -> 0.10...",
     Default = Bloxstrap.Config.GUIScale,
     Callback = function(call)
         Bloxstrap.UpdateConfig("GUIScale", call)
@@ -133,7 +148,7 @@ local guiscale = Appearance:AddToggle({
                 end)
             end)
         else
-            -- Keep the reduced scale. Turning it ON again applies the next -0.25 step.
+            -- Nao restaura: ligar de novo aplica o proximo passo.
             disconnectScaler()
         end
     end
@@ -146,7 +161,7 @@ source = string.sub(source, 1, scaleStartPos - 1)
     .. string.sub(source, scaleEndPos)
 
 -- Patch 2: Crosshair mobile-safe.
--- Usa imagem customizada se funcionar; sem imagem usa um ponto pequeno estilo PC.
+-- Usa imagem customizada se funcionar; sem imagem usa um ponto branco minúsculo.
 local crossStartMarker = "local chosenimage = ''"
 local crossEndMarker = "Appearance:AddSection('Customizations')"
 
@@ -161,7 +176,6 @@ local crossPatched = [=[
 local chosenimage = ''
 local crosshairRoot
 local crosshairImage
-local fallbackDotOuter
 local fallbackDot
 
 local guiParent = game:GetService("CoreGui")
@@ -201,7 +215,7 @@ local function ensureCrosshair()
     crosshairRoot.Name = "CrosshairRoot"
     crosshairRoot.AnchorPoint = Vector2.new(0.5, 0.5)
     crosshairRoot.Position = UDim2.new(0.5, 0, 0.5, 0)
-    crosshairRoot.Size = UDim2.new(0, 11, 0, 11)
+    crosshairRoot.Size = UDim2.new(0, 8, 0, 8)
     crosshairRoot.BackgroundTransparency = 1
     crosshairRoot.ZIndex = 100
     crosshairRoot.Parent = screengui
@@ -210,30 +224,19 @@ local function ensureCrosshair()
     crosshairImage.Name = "CustomImage"
     crosshairImage.AnchorPoint = Vector2.new(0.5, 0.5)
     crosshairImage.Position = UDim2.fromScale(0.5, 0.5)
-    crosshairImage.Size = UDim2.new(0, 11, 0, 11)
+    crosshairImage.Size = UDim2.new(0, 8, 0, 8)
     crosshairImage.BackgroundTransparency = 1
-    crosshairImage.ZIndex = 103
+    crosshairImage.ZIndex = 102
     crosshairImage.Parent = crosshairRoot
-
-    fallbackDotOuter = Instance.new("Frame")
-    fallbackDotOuter.Name = "DotOutline"
-    fallbackDotOuter.AnchorPoint = Vector2.new(0.5, 0.5)
-    fallbackDotOuter.Position = UDim2.fromScale(0.5, 0.5)
-    fallbackDotOuter.Size = UDim2.new(0, 5, 0, 5)
-    fallbackDotOuter.BorderSizePixel = 0
-    fallbackDotOuter.BackgroundColor3 = Color3.new(0, 0, 0)
-    fallbackDotOuter.ZIndex = 101
-    fallbackDotOuter.Parent = crosshairRoot
-    makeCircle(fallbackDotOuter)
 
     fallbackDot = Instance.new("Frame")
     fallbackDot.Name = "Dot"
     fallbackDot.AnchorPoint = Vector2.new(0.5, 0.5)
     fallbackDot.Position = UDim2.fromScale(0.5, 0.5)
-    fallbackDot.Size = UDim2.new(0, 3, 0, 3)
+    fallbackDot.Size = UDim2.new(0, 2, 0, 2)
     fallbackDot.BorderSizePixel = 0
     fallbackDot.BackgroundColor3 = Color3.new(1, 1, 1)
-    fallbackDot.ZIndex = 102
+    fallbackDot.ZIndex = 101
     fallbackDot.Parent = crosshairRoot
     makeCircle(fallbackDot)
 end
@@ -244,7 +247,6 @@ local function refreshCrosshairVisual()
     local hasImage = type(chosenimage) == "string" and chosenimage ~= ""
     crosshairImage.Image = hasImage and chosenimage or ""
     crosshairImage.Visible = hasImage
-    fallbackDotOuter.Visible = not hasImage
     fallbackDot.Visible = not hasImage
 end
 
@@ -311,7 +313,7 @@ source = string.sub(source, 1, crossStartPos - 1)
 
 local chunk, err = loadstring(
     source,
-    "Bloxstrap Unlimited GUI Scale + Tiny Dot Crosshair"
+    "Bloxstrap Smooth GUI Scale + Tiny Dot Crosshair"
 )
 
 if not chunk then
