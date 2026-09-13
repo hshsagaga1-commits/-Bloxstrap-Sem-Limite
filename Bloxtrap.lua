@@ -8,6 +8,11 @@ end
 
 local HttpService = cloneref(game:GetService("HttpService"))
 
+local function noCache(url)
+    local separator = string.find(url, "?", 1, true) and "&" or "?"
+    return url .. separator .. "_cb=" .. HttpService:GenerateGUID(false)
+end
+
 local function mkdir(path)
     if makefolder and not isfolder(path) then
         pcall(makefolder, path)
@@ -23,13 +28,15 @@ mkdir("Bloxstrap/Images")
 
 local function installMissing()
     if not isfile("Bloxstrap/Main/Functions/GuiLibrary.lua") then
-        local list = HttpService:JSONDecode(game:HttpGet(API .. "Main/Functions", true))
+        local list = HttpService:JSONDecode(
+            game:HttpGet(noCache(API .. "Main/Functions"), true)
+        )
 
         for _, v in ipairs(list) do
             if v.name and v.name:find("%.lua$") then
                 writefile(
                     "Bloxstrap/Main/Functions/" .. v.name,
-                    "return loadstring(game:HttpGet('" .. RAW .. "Main/Functions/" .. v.name .. "', true))()"
+                    "return loadstring(game:HttpGet('" .. RAW .. "Main/Functions/" .. v.name .. "?_cb=' .. game:GetService('HttpService'):GenerateGUID(false), true))()"
                 )
             end
         end
@@ -45,209 +52,101 @@ end
 
 installMissing()
 
-local source =
-    game:HttpGet(
-        RAW .. "Main/Bloxstrap.lua",
-        true
-    )
+local source = game:HttpGet(
+    noCache(RAW .. "Main/Bloxstrap.lua"),
+    true
+)
 
-local startMarker =
-    "local funnycon\nlocal guisets = {}"
+local startMarker = "local funnycon\nlocal guisets = {}"
+local endMarker = "local touchuuval = 1.2"
 
-local endMarker =
-    "local touchuuval = 1.2"
-
-local startPos =
-    string.find(
-        source,
-        startMarker,
-        1,
-        true
-    )
-
-local endPos =
-    startPos
-    and string.find(
-        source,
-        endMarker,
-        startPos,
-        true
-    )
+local startPos = string.find(source, startMarker, 1, true)
+local endPos = startPos and string.find(source, endMarker, startPos, true)
 
 if not startPos or not endPos then
-    error(
-        "GUIScaler block not found. Bloxstrap was probably updated."
-    )
+    error("GUIScaler block not found. Bloxstrap was probably updated.")
 end
 
 local patched = [=[
 local funnycon
-local guisets = {}
-local guisetmap = {}
 
-local SCALE_STEP =
-    tonumber(
-        getgenv().BloxstrapScaleStep
-    )
-    or 0.70
-
+local SCALE_STEP = tonumber(getgenv().BloxstrapScaleStep) or 0.70
 if SCALE_STEP <= 0 then
     SCALE_STEP = 0.70
 end
 
-local function rememberScale(
-    scaler,
-    oldscale,
-    created
-)
-    if not scaler
-        or guisetmap[scaler]
-    then
-        return
-    end
-
-    guisetmap[scaler] = true
-
-    table.insert(
-        guisets,
-        {
-            oldscale = oldscale,
-            scaler = scaler,
-            created = created
-        }
-    )
-end
-
 local function scalePlayerGui(v)
-    if not v
-        or v.Name == "TouchGui"
-    then
+    if not v or v.Name == "TouchGui" then
         return
     end
 
-    local oldui =
-        v:FindFirstChildWhichIsA(
-            "UIScale",
-            true
-        )
+    local oldui = v:FindFirstChildWhichIsA("UIScale", true)
 
     if oldui then
-        rememberScale(
-            oldui,
-            oldui.Scale,
-            false
-        )
-
-        oldui.Scale =
-            oldui.Scale
-            * SCALE_STEP
+        oldui.Scale = oldui.Scale * SCALE_STEP
     else
-        local uiscale =
-            Instance.new("UIScale")
-
-        uiscale.Scale =
-            SCALE_STEP
-
-        uiscale.Parent =
-            v
-
-        rememberScale(
-            uiscale,
-            9e9,
-            true
-        )
+        local uiscale = Instance.new("UIScale")
+        uiscale.Name = "__BloxstrapUnlimitedScale"
+        uiscale.Scale = SCALE_STEP
+        uiscale.Parent = v
     end
 end
 
-local function restoreEverything()
+local function disconnectScaler()
     pcall(function()
         if funnycon then
             funnycon:Disconnect()
             funnycon = nil
         end
     end)
-
-    for _, v in ipairs(guisets) do
-        pcall(function()
-            if v.scaler
-                and v.scaler.Parent
-            then
-                if v.created
-                    or v.oldscale == 9e9
-                then
-                    v.scaler:Destroy()
-                else
-                    v.scaler.Scale =
-                        v.oldscale
-                end
-            end
-        end)
-    end
-
-    table.clear(guisets)
-    table.clear(guisetmap)
 end
 
-local guiscale =
-    Appearance:AddToggle({
-        Name = "GUIScaler",
+local function applyScalePass()
+    for _, v in ipairs(lplr.PlayerGui:GetChildren()) do
+        scalePlayerGui(v)
+    end
+end
 
-        Description =
-            "Decrease the roblox gui scales without a fixed lower limit",
+local guiscale = Appearance:AddToggle({
+    Name = "GUIScaler",
+    Description = "Every ON applies another GUI scale step; no fixed lower limit",
+    Default = Bloxstrap.Config.GUIScale,
+    Callback = function(call)
+        Bloxstrap.UpdateConfig("GUIScale", call)
 
-        Default =
-            Bloxstrap.Config.GUIScale,
+        if call then
+            disconnectScaler()
+            applyScalePass()
 
-        Callback = function(call)
-            Bloxstrap.UpdateConfig(
-                "GUIScale",
-                call
-            )
-
-            if call then
-                funnycon =
-                    lplr.PlayerGui.ChildAdded:
-                    Connect(function(v)
-                        scalePlayerGui(v)
-                    end)
-
-                for _, v in ipairs(
-                    lplr.PlayerGui:GetChildren()
-                ) do
+            funnycon = lplr.PlayerGui.ChildAdded:Connect(function(v)
+                task.defer(function()
                     scalePlayerGui(v)
-                end
-            else
-                restoreEverything()
-            end
+                end)
+            end)
+        else
+            -- Intentionally do NOT restore the previous scale.
+            -- Turn it ON again to apply another multiplicative step.
+            disconnectScaler()
         end
-    })
+    end
+})
 
 ]=]
 
-source =
-    string.sub(
-        source,
-        1,
-        startPos - 1
-    )
+source = string.sub(source, 1, startPos - 1)
     .. patched
-    .. string.sub(
-        source,
-        endPos
-    )
+    .. string.sub(source, endPos)
 
-local chunk, err =
-    loadstring(
-        source,
-        "Bloxstrap Unlimited GUI Scale"
-    )
+local chunk, err = loadstring(
+    source,
+    "Bloxstrap Unlimited GUI Scale"
+)
 
 if not chunk then
     error(err)
 end
 
-local Bloxstrap =
-    chunk()
+local Bloxstrap = chunk()
 
 Bloxstrap.start()
 Bloxstrap.Visible(not hidegui)
