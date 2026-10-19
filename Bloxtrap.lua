@@ -188,8 +188,24 @@ local function isFullScreenContainer(gui)
     return false
 end
 
+local function clearNestedScales(gui)
+    -- Earlier versions scaled image/text descendants separately. Remove those
+    -- old scales when scaling the parent button/group to avoid double scaling.
+    for _, descendant in ipairs(gui:GetDescendants()) do
+        if descendant:IsA("UIScale")
+            and descendant.Name == "__BloxstrapUnlimitedScale" then
+            descendant:Destroy()
+        end
+    end
+end
+
 local function applyToGroup(gui)
     if not gui:IsA("GuiObject") or isExcluded(gui) then return end
+
+    -- A control/group gets exactly one scaler at its root. This keeps an emote
+    -- button's icon and text at the same scale instead of one tiny/one normal.
+    clearNestedScales(gui)
+
     local scaler = getDirectScale(gui)
     if scaler then
         scaler.Scale = activeScale
@@ -223,6 +239,16 @@ local function hasExcludedBranch(node)
     return false
 end
 
+local function hasGroupLayout(node)
+    for _, child in ipairs(node:GetChildren()) do
+        if child:IsA("UIListLayout") or child:IsA("UIGridLayout")
+            or child:IsA("UITableLayout") or child:IsA("UIPageLayout") then
+            return true
+        end
+    end
+    return false
+end
+
 local function scaleTree(node)
     if not node or isExcluded(node) then return end
 
@@ -238,8 +264,16 @@ local function scaleTree(node)
 
     local children = directGuiChildren(node)
 
-    -- Keep the proven position-safe behavior: scale each complete button or
-    -- leaf control, never a shared frame/container that owns sibling positions.
+    -- Group only containers whose child positions are controlled by Roblox
+    -- layout objects. Their siblings shrink as one unit and keep their layout.
+    -- Manually positioned frames are not scaled, preventing screen-position drift.
+    if #children > 1 and not isFullScreenContainer(node)
+        and hasGroupLayout(node) then
+        applyToGroup(node)
+        return
+    end
+
+    -- Scale complete buttons, including nested icon and text, in place.
     if node:IsA("GuiButton") then
         applyToGroup(node)
         return
