@@ -67,88 +67,149 @@ end
 
 local scalePatched = [=[
 local funnycon
-
+local scalerConnections = {}
 local MIN_SCALE = tonumber(getgenv().BloxstrapMinScale) or 0.01
-if MIN_SCALE < 0 then
-    MIN_SCALE = 0.01
-end
+MIN_SCALE = math.clamp(MIN_SCALE, 0.01, 0.75)
 
 local function nextScale(current)
     current = tonumber(current) or 1
-
-    -- Mantem o comportamento conhecido nas duas primeiras reducoes:
-    -- 1.00 -> 0.75 -> 0.50
-    -- Depois desce mais suave, parecido com o video:
-    -- 0.50 -> 0.40 -> 0.30 -> 0.20 -> 0.10 -> 0.05 -> 0.01
-    if current > 0.75 then
-        return 0.75
-    elseif current > 0.50 then
-        return 0.50
-    elseif current > 0.40 then
-        return 0.40
-    elseif current > 0.30 then
-        return 0.30
-    elseif current > 0.20 then
-        return 0.20
-    elseif current > 0.10 then
-        return 0.10
-    elseif current > 0.05 then
-        return 0.05
-    end
-
+    if current > 0.75 then return 0.75 end
+    if current > 0.50 then return 0.50 end
+    if current > 0.40 then return 0.40 end
+    if current > 0.30 then return 0.30 end
+    if current > 0.20 then return 0.20 end
+    if current > 0.10 then return 0.10 end
+    if current > 0.05 then return 0.05 end
     return MIN_SCALE
 end
 
-local function scalePlayerGui(v)
-    if not v or v.Name == "TouchGui" then
+local function getDirectScale(gui)
+    for _, child in ipairs(gui:GetChildren()) do
+        if child:IsA("UIScale") then
+            return child
+        end
+    end
+end
+
+local function isFullScreenContainer(gui)
+    if not gui:IsA("GuiObject") then return false end
+    local size = gui.Size
+    if size.X.Scale >= 0.90 and size.Y.Scale >= 0.90 then
+        return true
+    end
+
+    local camera = workspace.CurrentCamera
+    if camera then
+        local viewport = camera.ViewportSize
+        local absolute = gui.AbsoluteSize
+        if viewport.X > 0 and viewport.Y > 0
+            and absolute.X >= viewport.X * 0.90
+            and absolute.Y >= viewport.Y * 0.90 then
+            return true
+        end
+    end
+    return false
+end
+
+local function applyToGroup(gui)
+    if not gui:IsA("GuiObject") or gui.Name == "TouchGui" then
         return
     end
 
-    local oldui = v:FindFirstChildWhichIsA("UIScale", true)
-
-    if oldui then
-        oldui.Scale = nextScale(oldui.Scale)
+    local scaler = getDirectScale(gui)
+    if scaler then
+        scaler.Scale = nextScale(scaler.Scale)
     else
-        local uiscale = Instance.new("UIScale")
-        uiscale.Name = "__BloxstrapUnlimitedScale"
-        uiscale.Scale = 0.75
-        uiscale.Parent = v
+        scaler = Instance.new("UIScale")
+        scaler.Name = "__BloxstrapUnlimitedScale"
+        scaler.Scale = 0.75
+        scaler.Parent = gui
+    end
+end
+
+-- Full-screen wrappers are traversed instead of scaled, so separate HUD groups
+-- (lantern, bag, health/speed bars, etc.) can shrink independently. A smaller
+-- container is scaled as one unit, preserving the relative positions of its children.
+local function scaleTree(node)
+    if not node or node.Name == "TouchGui" then return end
+
+    if node:IsA("ScreenGui") then
+        for _, child in ipairs(node:GetChildren()) do
+            if child:IsA("GuiObject") then
+                scaleTree(child)
+            end
+        end
+        return
+    end
+
+    if not node:IsA("GuiObject") then return end
+
+    if isFullScreenContainer(node) then
+        for _, child in ipairs(node:GetChildren()) do
+            if child:IsA("GuiObject") then
+                scaleTree(child)
+            end
+        end
+    else
+        applyToGroup(node)
     end
 end
 
 local function disconnectScaler()
-    pcall(function()
-        if funnycon then
-            funnycon:Disconnect()
-            funnycon = nil
-        end
+    if funnycon then
+        pcall(function() funnycon:Disconnect() end)
+        funnycon = nil
+    end
+    for _, connection in ipairs(scalerConnections) do
+        pcall(function() connection:Disconnect() end)
+    end
+    table.clear(scalerConnections)
+end
+
+local function watchScreenGui(screenGui)
+    if not screenGui:IsA("ScreenGui") or screenGui.Name == "TouchGui" then
+        return
+    end
+
+    local connection = screenGui.ChildAdded:Connect(function(child)
+        task.defer(function()
+            if child and child.Parent == screenGui then
+                scaleTree(child)
+            end
+        end)
     end)
+    table.insert(scalerConnections, connection)
 end
 
 local function applyScalePass()
-    for _, v in ipairs(lplr.PlayerGui:GetChildren()) do
-        scalePlayerGui(v)
+    for _, gui in ipairs(lplr.PlayerGui:GetChildren()) do
+        if gui.Name ~= "TouchGui" then
+            scaleTree(gui)
+            watchScreenGui(gui)
+        end
     end
 end
 
 local guiscale = Appearance:AddToggle({
     Name = "GUIScaler",
-    Description = "1.00 -> 0.75 -> 0.50 -> 0.40 -> 0.30 -> 0.20 -> 0.10...",
+    Description = "Progressive grouped UI scale: 0.75 -> 0.50 -> 0.40 -> 0.30 -> 0.20 -> 0.10 -> 0.05 -> 0.01",
     Default = Bloxstrap.Config.GUIScale,
     Callback = function(call)
         Bloxstrap.UpdateConfig("GUIScale", call)
-
         if call then
             disconnectScaler()
             applyScalePass()
-
-            funnycon = lplr.PlayerGui.ChildAdded:Connect(function(v)
+            funnycon = lplr.PlayerGui.ChildAdded:Connect(function(gui)
                 task.defer(function()
-                    scalePlayerGui(v)
+                    if gui and gui.Parent == lplr.PlayerGui and gui.Name ~= "TouchGui" then
+                        scaleTree(gui)
+                        watchScreenGui(gui)
+                    end
                 end)
             end)
         else
-            -- Nao restaura: ligar de novo aplica o proximo passo.
+            -- Turning off stops future scaling. It intentionally keeps the current
+            -- size, so the next activation advances to the next step.
             disconnectScaler()
         end
     end
