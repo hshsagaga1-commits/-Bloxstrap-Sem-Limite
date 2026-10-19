@@ -220,18 +220,26 @@ local function scaleTree(node)
     end
     if not node:IsA("GuiObject") then return end
 
-    -- IMPORTANT: never put UIScale on a full-screen/container frame.
-    -- Scaling a parent also scales every child's POSITION, pulling HUD controls
-    -- toward the center/corners. Scale the actual control instead so its layout
-    -- coordinates stay owned by the original parent.
+    local children = directGuiChildren(node)
+
+    -- Scale a compact control group as one unit when it contains only eligible
+    -- controls. Never scale full-screen/layout containers: that shifts HUD positions.
+    local compactGroup = #children > 1
+        and not isFullScreenContainer(node)
+        and not hasExcludedBranch(node)
+
+    if compactGroup then
+        applyToGroup(node)
+        return
+    end
+
+    -- A button is a complete visual control: scale it and its icon/text together.
     if node:IsA("GuiButton") then
         applyToGroup(node)
         return
     end
 
-    local children = directGuiChildren(node)
     if #children == 0 then
-        -- Text/image leaf controls shrink in place; their parent layout is untouched.
         applyToGroup(node)
         return
     end
