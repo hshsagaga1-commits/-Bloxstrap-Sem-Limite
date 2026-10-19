@@ -207,6 +207,18 @@ local function hasExcludedBranch(node)
     return false
 end
 
+local function hasGroupLayout(node)
+    -- Containers with a real layout own the positions of their children.
+    -- Scaling that container keeps the layout's controls together.
+    for _, child in ipairs(node:GetChildren()) do
+        if child:IsA("UIListLayout") or child:IsA("UIGridLayout")
+            or child:IsA("UITableLayout") or child:IsA("UIPageLayout") then
+            return true
+        end
+    end
+    return false
+end
+
 local function scaleTree(node)
     if not node or isExcluded(node) then return end
 
@@ -222,17 +234,21 @@ local function scaleTree(node)
 
     local children = directGuiChildren(node)
 
-    -- Scale sibling controls through their shared container, so spacing and
-    -- relative positions stay together. Only reject full-screen roots, which
-    -- would scale the whole HUD around the screen origin.
-    local compactGroup = #children > 1 and not isFullScreenContainer(node)
+    -- Only scale a container as a group when Roblox itself arranges its
+    -- children with a layout object. Arbitrary frames often contain controls
+    -- positioned manually; scaling those frames moves them, so recurse instead.
+    local compactGroup = #children > 1
+        and not isFullScreenContainer(node)
+        and hasGroupLayout(node)
 
     if compactGroup then
         applyToGroup(node)
         return
     end
 
-    -- Single controls are scaled as a unit with their own icon/text descendants.
+    -- For manually positioned controls, scale each control in place. Its
+    -- icon/text descendants stay attached to it, and sibling positions remain
+    -- owned by their original parent.
     if node:IsA("GuiButton") or #children == 0 then
         applyToGroup(node)
         return
