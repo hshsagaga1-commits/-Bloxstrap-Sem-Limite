@@ -93,8 +93,8 @@ end
 
 local function nameIsExcluded(name)
     name = string.lower(name)
-    -- Não excluir todo nome com "emote": o botão de abrir emotes também deve diminuir.
-    -- Protege somente o menu/roda aberta de emotes e a interface de chat.
+    -- Exclude opened emote panels/wheels and backpack/inventory contents,
+    -- but not the standalone buttons that open those interfaces.
     if name:find("chat", 1, true)
         or name:find("message", 1, true)
         or name:find("textbox", 1, true)
@@ -105,27 +105,39 @@ local function nameIsExcluded(name)
         or name:find("emote-wheel", 1, true)
         or name:find("emotemenu", 1, true)
         or name:find("emote_menu", 1, true)
+        or name:find("inventory", 1, true)
+        or name:find("backpackframe", 1, true)
+        or name:find("backpackcontainer", 1, true)
+        or name:find("emotetab", 1, true)
         then return true end
     return name == "touchgui" or name == "emotesmenu"
         or name == "robloxmenu" or name == "chat"
         or name == "chatwindow" or name == "chatbar" or name == "chatinput"
         or name == "textchat" or name == "channelsbar" or name == "bubblechat"
-        -- Never scale aiming reticles/crosshairs with the interface.
+        or name == "backpack" or name == "backpackgui"
+        or name == "emotes" or name == "emotewindow"
         or name:find("crosshair", 1, true) ~= nil
         or name:find("crosshairroot", 1, true) ~= nil
 end
 
 local function isBackpackToggle(gui)
     return gui and gui:IsA("GuiButton")
-        and string.lower(gui.Name):find("backpack", 1, true) ~= nil
+        and (string.lower(gui.Name):find("backpack", 1, true) ~= nil
+            or string.lower(gui.Name):find("inventorytoggle", 1, true) ~= nil)
+end
+
+local function isEmoteToggle(gui)
+    if not gui or not gui:IsA("GuiButton") then return false end
+    local name = string.lower(gui.Name)
+    return name:find("emote", 1, true) ~= nil
+        and not name:find("wheel", 1, true)
+        and not name:find("menu", 1, true)
 end
 
 local function isInventoryItem(gui)
     if not gui then return false end
     local function matches(value)
         value = string.lower(tostring(value or ""))
-        -- Preserve inventory items and the contextual action shown while holding them.
-        -- Item na mão e botão contextual de soltar/colocar ficam intactos.
         value = value:gsub("[%[%]%(%)_%-]", " ")
         return value:find("velocidade", 1, true) ~= nil
             or value == "cola"
@@ -146,10 +158,14 @@ local function isInventoryItem(gui)
 end
 
 local function isExcluded(gui)
+    -- Always allow the buttons that open backpack/emotes to be scaled.
+    if isBackpackToggle(gui) or isEmoteToggle(gui) then return false end
     local current = gui
     while current and current ~= lplr.PlayerGui do
-        if (nameIsExcluded(current.Name) and not isBackpackToggle(current))
-            or isInventoryItem(current) then
+        if ((nameIsExcluded(current.Name)
+                and not isBackpackToggle(current)
+                and not isEmoteToggle(current))
+            or isInventoryItem(current)) then
             return true
         end
         current = current.Parent
@@ -207,18 +223,6 @@ local function hasExcludedBranch(node)
     return false
 end
 
-local function hasGroupLayout(node)
-    -- Containers with a real layout own the positions of their children.
-    -- Scaling that container keeps the layout's controls together.
-    for _, child in ipairs(node:GetChildren()) do
-        if child:IsA("UIListLayout") or child:IsA("UIGridLayout")
-            or child:IsA("UITableLayout") or child:IsA("UIPageLayout") then
-            return true
-        end
-    end
-    return false
-end
-
 local function scaleTree(node)
     if not node or isExcluded(node) then return end
 
@@ -234,22 +238,14 @@ local function scaleTree(node)
 
     local children = directGuiChildren(node)
 
-    -- Only scale a container as a group when Roblox itself arranges its
-    -- children with a layout object. Arbitrary frames often contain controls
-    -- positioned manually; scaling those frames moves them, so recurse instead.
-    local compactGroup = #children > 1
-        and not isFullScreenContainer(node)
-        and hasGroupLayout(node)
-
-    if compactGroup then
+    -- Keep the proven position-safe behavior: scale each complete button or
+    -- leaf control, never a shared frame/container that owns sibling positions.
+    if node:IsA("GuiButton") then
         applyToGroup(node)
         return
     end
 
-    -- For manually positioned controls, scale each control in place. Its
-    -- icon/text descendants stay attached to it, and sibling positions remain
-    -- owned by their original parent.
-    if node:IsA("GuiButton") or #children == 0 then
+    if #children == 0 then
         applyToGroup(node)
         return
     end
