@@ -82,24 +82,35 @@ local function nextScale(current)
     return MIN_SCALE
 end
 
-local function getScale(gui)
-    for _, obj in ipairs(gui:GetDescendants()) do
-        if obj:IsA("UIScale") and obj.Name == "__BloxstrapUnlimitedScale" then
-            return obj
-        end
-    end
-    if gui:IsA("GuiObject") then
+local function getScale(gui, isCoreGui)
+    -- CoreGui uses a direct UIScale lookup upstream; PlayerGui searches descendants.
+    if isCoreGui then
         for _, child in ipairs(gui:GetChildren()) do
             if child:IsA("UIScale") then return child end
         end
+        for _, obj in ipairs(gui:GetDescendants()) do
+            if obj:IsA("UIScale") and obj.Name == "__BloxstrapUnlimitedScale" then
+                return obj
+            end
+        end
+        return nil
+    end
+    for _, obj in ipairs(gui:GetDescendants()) do
+        if obj:IsA("UIScale") then return obj end
     end
 end
 
 local function scaleRoot(gui, isCoreGui)
     if not gui or gui.Name == "TouchGui" then return end
-    local scaler = getScale(gui)
+    local scaler = getScale(gui, isCoreGui)
     if scaler then
-        scaler.Scale = nextScale(scaler.Scale)
+        if scaler.Name == "__BloxstrapUnlimitedScale" then
+            scaler.Scale = nextScale(scaler.Scale)
+        elseif isCoreGui then
+            scaler.Scale = math.max(MIN_SCALE, scaler.Scale - 0.3)
+        else
+            scaler.Scale = 0.5
+        end
     else
         -- Match upstream Bloxstrap: add the scaler to the same top-level GUI root.
         scaler = Instance.new("UIScale")
