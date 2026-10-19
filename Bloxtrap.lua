@@ -209,54 +209,36 @@ end
 
 local function scaleTree(node)
     if not node or isExcluded(node) then return end
+
     if node:IsA("ScreenGui") then
-        -- Scale each full-screen root as ONE layout, not each button separately.
-        -- This keeps sibling controls together instead of breaking inventory/actions.
-        local roots = {}
         for _, child in ipairs(node:GetChildren()) do
             if child:IsA("GuiObject") and not isExcluded(child) then
-                table.insert(roots, child)
+                scaleTree(child)
             end
-        end
-        local fullScreenRoots = {}
-        for _, child in ipairs(roots) do
-            if isFullScreenContainer(child) then
-                table.insert(fullScreenRoots, child)
-            end
-        end
-        if #fullScreenRoots > 0 then
-            for _, root in ipairs(fullScreenRoots) do
-                applyToGroup(root)
-            end
-            -- Scale remaining independent roots only as complete groups where possible.
-            for _, root in ipairs(roots) do
-                if not isFullScreenContainer(root) then
-                    scaleTree(root)
-                end
-            end
-        else
-            for _, root in ipairs(roots) do scaleTree(root) end
         end
         return
     end
     if not node:IsA("GuiObject") then return end
 
-    -- Do not descend through a full-screen root and attach scales to individual
-    -- descendants; that was what made buttons shrink/disappear independently.
-    if isFullScreenContainer(node) then
-        -- Preserve the container's original AnchorPoint and Position.
-        -- UIScale alone changes the rendered size without rewriting its layout coordinates.
+    -- IMPORTANT: never put UIScale on a full-screen/container frame.
+    -- Scaling a parent also scales every child's POSITION, pulling HUD controls
+    -- toward the center/corners. Scale the actual control instead so its layout
+    -- coordinates stay owned by the original parent.
+    if node:IsA("GuiButton") then
         applyToGroup(node)
         return
     end
 
     local children = directGuiChildren(node)
-    local groupCandidate = #children >= 2 and not hasExcludedBranch(node)
-    if groupCandidate or #children == 0 then
+    if #children == 0 then
+        -- Text/image leaf controls shrink in place; their parent layout is untouched.
         applyToGroup(node)
         return
     end
-    for _, child in ipairs(children) do scaleTree(child) end
+
+    for _, child in ipairs(children) do
+        scaleTree(child)
+    end
 end
 
 local function applyScalePass()
