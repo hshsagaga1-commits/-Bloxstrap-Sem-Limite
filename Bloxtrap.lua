@@ -68,16 +68,18 @@ end
 local scalePatched = [=[
 local funnycon
 local scalerConnections = {}
-local MIN_SCALE = tonumber(getgenv().BloxstrapMinScale) or 0.01
-MIN_SCALE = math.clamp(MIN_SCALE, 0.01, 0.75)
+-- Cada ativação do toggle desce só um degrau; revarreduras não diminuem mais.
+local MIN_SCALE = 0.10
+local activeScale = 1.00
 
 local function nextScale(current)
     current = tonumber(current) or 1
-    if current > 0.30 then return 0.30 end
-    if current > 0.20 then return 0.20 end
-    if current > 0.10 then return 0.10 end
-    if current > 0.05 then return 0.05 end
-    if current > 0.02 then return 0.02 end
+    if current > 0.80 then return 0.80 end
+    if current > 0.65 then return 0.65 end
+    if current > 0.50 then return 0.50 end
+    if current > 0.35 then return 0.35 end
+    if current > 0.25 then return 0.25 end
+    if current > 0.15 then return 0.15 end
     return MIN_SCALE
 end
 
@@ -131,11 +133,37 @@ local function isBackpackToggle(gui)
         and string.lower(gui.Name):find("backpack", 1, true) ~= nil
 end
 
+-- Protege os próprios itens da mochila, mesmo quando o nome do objeto é genérico.
+local function isInventoryItem(gui)
+    if not gui then return false end
+    local function matches(value)
+        value = string.lower(tostring(value or ""))
+        return value == "velocidade" or value == "cola"
+            or value:find("velocidade", 1, true) ~= nil
+            or value:find("cola", 1, true) ~= nil
+    end
+    if matches(gui.Name) then return true end
+    pcall(function()
+        if gui:IsA("TextLabel") or gui:IsA("TextButton") or gui:IsA("TextBox") then
+            if matches(gui.Text) then return true end
+        end
+    end)
+    local found = false
+    for _, descendant in ipairs(gui:GetDescendants()) do
+        if matches(descendant.Name) then return true end
+        if descendant:IsA("TextLabel") or descendant:IsA("TextButton") or descendant:IsA("TextBox") then
+            if matches(descendant.Text) then found = true; break end
+        end
+    end
+    return found
+end
+
 local function isExcluded(gui)
     local current = gui
     while current and current ~= lplr.PlayerGui do
-        -- Let the backpack opener itself shrink; exclude the inventory panel/items.
-        if nameIsExcluded(current.Name) and not isBackpackToggle(current) then
+        -- O botão que abre a mochila pode diminuir; os itens e o painel ficam intactos.
+        if (nameIsExcluded(current.Name) and not isBackpackToggle(current))
+            or isInventoryItem(current) then
             return true
         end
         current = current.Parent
@@ -168,13 +196,14 @@ local function applyToGroup(gui)
 
     local scaler = getDirectScale(gui)
     if scaler then
-        if scaler.Scale > 0.30 then
-            scaler.Scale = 0.30
+        -- Nunca desce em revarreduras; só usa o degrau escolhido ao ativar.
+        if scaler.Scale > activeScale then
+            scaler.Scale = activeScale
         end
     else
         scaler = Instance.new("UIScale")
         scaler.Name = "__BloxstrapUnlimitedScale"
-        scaler.Scale = 0.30
+        scaler.Scale = activeScale
         scaler.Parent = gui
     end
 end
@@ -191,7 +220,7 @@ end
 
 local function hasExcludedBranch(node)
     for _, descendant in ipairs(node:GetDescendants()) do
-        if nameIsExcluded(descendant.Name) then
+        if nameIsExcluded(descendant.Name) or isInventoryItem(descendant) then
             return true
         end
     end
@@ -302,6 +331,7 @@ local guiscale = Appearance:AddToggle({
         Bloxstrap.UpdateConfig("GUIScale", call)
         if call then
             disconnectScaler()
+            activeScale = nextScale(activeScale)
             -- Clear stale watcher markers so a re-enabled toggle can reconnect.
             for _, gui in ipairs(lplr.PlayerGui:GetChildren()) do
                 if gui:IsA("ScreenGui") then
