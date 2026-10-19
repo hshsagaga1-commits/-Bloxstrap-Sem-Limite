@@ -94,6 +94,9 @@ local function nameIsExcluded(name)
     if name:find("chat", 1, true)
         or name:find("message", 1, true)
         or name:find("emote", 1, true)
+        or name:find("backpack", 1, true)
+        or name:find("inventory", 1, true)
+        or name:find("toolbelt", 1, true)
         or name:find("textbox", 1, true)
         or name:find("chatbar", 1, true)
         or name:find("textchat", 1, true)
@@ -115,6 +118,11 @@ local function nameIsExcluded(name)
         or name == "textchat"
         or name == "channelsbar"
         or name == "bubblechat"
+        or name == "backpack"
+        or name == "backpackgui"
+        or name == "inventory"
+        or name == "toolinventory"
+        or name == "toolbelt"
         or name == "emoteanimation"
 end
 
