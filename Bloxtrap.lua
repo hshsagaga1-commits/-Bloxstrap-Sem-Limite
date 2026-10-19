@@ -66,9 +66,9 @@ if not scaleStartPos or not scaleEndPos then
 end
 
 local scalePatched = [=[
-local funnycon
 local scalerConnections = {}
 local MIN_SCALE = math.clamp(tonumber(getgenv().BloxstrapMinScale) or 0.05, 0.01, 0.75)
+local touchedScales = setmetatable({}, {__mode = "k"})
 
 local function nextScale(current)
     current = tonumber(current) or 1
@@ -82,93 +82,83 @@ local function nextScale(current)
     return MIN_SCALE
 end
 
-local touchedScales = setmetatable({}, {__mode = "k"})
+local function scaleGuiObject(obj)
+    if not obj or not obj:IsA("GuiObject") then return end
 
-local function getScale(gui, isCoreGui)
-    -- CoreGui uses a direct UIScale lookup upstream; PlayerGui searches descendants.
-    if isCoreGui then
-        for _, child in ipairs(gui:GetChildren()) do
-            if child:IsA("UIScale") then return child end
-        end
-        for _, obj in ipairs(gui:GetDescendants()) do
-            if obj:IsA("UIScale") and obj.Name == "__BloxstrapUnlimitedScale" then
-                return obj
-            end
-        end
-        return nil
-    end
-    for _, obj in ipairs(gui:GetDescendants()) do
-        if obj:IsA("UIScale") then return obj end
-    end
-end
-
-local function scaleRoot(gui, isCoreGui)
-    if not gui or gui.Name == "TouchGui" then return end
-    local scaler = getScale(gui, isCoreGui)
+    local scaler = obj:FindFirstChildWhichIsA("UIScale")
     if scaler then
-        if scaler.Name == "__BloxstrapUnlimitedScale" or touchedScales[scaler] then
+        if touchedScales[scaler] then
             scaler.Scale = nextScale(scaler.Scale)
-        elseif isCoreGui then
-            scaler.Scale = math.max(MIN_SCALE, scaler.Scale - 0.3)
         else
-            scaler.Scale = 0.5
+            scaler.Scale = math.max(MIN_SCALE, scaler.Scale - 0.3)
         end
-        touchedScales[scaler] = true
     else
-        -- Match upstream Bloxstrap: add the scaler to the same top-level GUI root.
         scaler = Instance.new("UIScale")
         scaler.Name = "__BloxstrapUnlimitedScale"
         scaler.Scale = 0.7
-        scaler.Parent = gui
-        touchedScales[scaler] = true
+        scaler.Parent = obj
+    end
+    touchedScales[scaler] = true
+end
+
+local function scaleRoot(gui)
+    if not gui or gui.Name == "TouchGui" then return end
+
+    -- UIScale must live under a GuiObject, not a ScreenGui/Folder.
+    if gui:IsA("GuiObject") then
+        scaleGuiObject(gui)
+        return
+    end
+
+    -- Scale the actual visual roots of each ScreenGui (including Roblox's menu button/menu),
+    -- instead of attaching UIScale to a non-visual container.
+    for _, child in ipairs(gui:GetChildren()) do
+        if child:IsA("GuiObject") then
+            scaleGuiObject(child)
+        end
     end
 end
 
-local function scaleExistingRoots(container, isCoreGui)
+local function scaleExistingRoots(container)
     for _, gui in ipairs(container:GetChildren()) do
         if gui.Name ~= "TouchGui" then
-            scaleRoot(gui, isCoreGui)
+            scaleRoot(gui)
         end
     end
 end
 
 local function disconnectScaler()
-    if funnycon then
-        pcall(function() funnycon:Disconnect() end)
-        funnycon = nil
-    end
     for _, connection in ipairs(scalerConnections) do
         pcall(function() connection:Disconnect() end)
     end
     table.clear(scalerConnections)
 end
 
-local function watchContainer(container, isCoreGui)
-    local connection = container.ChildAdded:Connect(function(gui)
+local function watchContainer(container)
+    table.insert(scalerConnections, container.ChildAdded:Connect(function(gui)
         task.defer(function()
             if gui and gui.Parent == container and gui.Name ~= "TouchGui" then
-                scaleRoot(gui, isCoreGui)
+                scaleRoot(gui)
             end
         end)
-    end)
-    table.insert(scalerConnections, connection)
+    end))
 end
 
 local guiscale = Appearance:AddToggle({
     Name = "GUIScaler",
-    Description = "Progressively scales the same top-level UI roots as Bloxstrap",
+    Description = "Scales visible GUI roots, including the Roblox menu button and menu",
     Default = Bloxstrap.Config.GUIScale,
     Callback = function(call)
         Bloxstrap.UpdateConfig("GUIScale", call)
         if call then
             disconnectScaler()
             local coreGui = game:GetService("CoreGui")
-            scaleExistingRoots(lplr.PlayerGui, false)
-            scaleExistingRoots(coreGui, true)
-            watchContainer(lplr.PlayerGui, false)
-            watchContainer(coreGui, true)
+            scaleExistingRoots(lplr.PlayerGui)
+            scaleExistingRoots(coreGui)
+            watchContainer(lplr.PlayerGui)
+            watchContainer(coreGui)
         else
-            -- Off only stops future scaling; current scale is intentionally kept.
+            -- Disabling stops future scaling; existing scales stay, as requested.
             disconnectScaler()
         end
     end
