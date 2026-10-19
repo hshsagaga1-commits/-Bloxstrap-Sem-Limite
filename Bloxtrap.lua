@@ -314,6 +314,8 @@ local function watchScreenGui(screenGui)
     table.insert(scalerConnections, connection)
 end
 
+local scalePassQueued = false
+
 local function applyScalePass()
     for _, gui in ipairs(lplr.PlayerGui:GetChildren()) do
         if gui:IsA("ScreenGui") and not isExcluded(gui) then
@@ -321,6 +323,19 @@ local function applyScalePass()
             watchScreenGui(gui)
         end
     end
+end
+
+-- Batch rapid UI creation into one scan instead of rescanning the whole UI
+-- tree for every individual GuiObject added by the game.
+local function requestScalePass()
+    if scalePassQueued then return end
+    scalePassQueued = true
+    task.defer(function()
+        scalePassQueued = false
+        if lplr and lplr.Parent and lplr:FindFirstChild("PlayerGui") then
+            applyScalePass()
+        end
+    end)
 end
 
 local guiscale = Appearance:AddToggle({
@@ -347,11 +362,9 @@ local guiscale = Appearance:AddToggle({
                 end)
             end))
             table.insert(scalerConnections, lplr.PlayerGui.DescendantAdded:Connect(function(child)
-                task.defer(function()
-                    if child and child.Parent and child:IsA("GuiObject") and not isExcluded(child) then
-                        applyScalePass()
-                    end
-                end)
+                if child and child:IsA("GuiObject") and not isExcluded(child) then
+                    requestScalePass()
+                end
             end))
             funnycon = lplr.PlayerGui.ChildAdded:Connect(function(gui)
                 task.defer(function()
