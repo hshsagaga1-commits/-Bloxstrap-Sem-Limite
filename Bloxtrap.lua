@@ -142,12 +142,31 @@ local function isInventoryItem(gui)
         return value:find("velocidade", 1, true) ~= nil
             or value == "cola"
             or value:find("cola ", 1, true) ~= nil
-            or value:find(" colocar no chao", 1, true) ~= nil
-            or value:find(" colocar no chão", 1, true) ~= nil
-            or value:find("colocar no chao", 1, true) ~= nil
-            or value:find("colocar no chão", 1, true) ~= nil
+            or value:find("colocar", 1, true) ~= nil
             or value:find("soltar", 1, true) ~= nil
-            or value:find("drop", 1, true) ~= nil
+            or value == "drop"
+            or value:find("drop ", 1, true) ~= nil
+    end
+    if matches(gui.Name) then return true end
+    if gui:IsA("TextLabel") or gui:IsA("TextButton") or gui:IsA("TextBox") then
+        local ok, value = pcall(function() return gui.Text end)
+        if ok and matches(value) then return true end
+    end
+    return false
+end
+
+local function isBackNavigation(gui)
+    if not gui then return false end
+    local function matches(value)
+        value = string.lower(tostring(value or ""))
+        return value:find("backbutton", 1, true) ~= nil
+            or value:find("back button", 1, true) ~= nil
+            or value == "back" or value == "return" or value == "voltar"
+            or value:find("arrowleft", 1, true) ~= nil
+            or value:find("leftarrow", 1, true) ~= nil
+            or value:find("chevronleft", 1, true) ~= nil
+            or value:find("previous", 1, true) ~= nil
+            or value == "←" or value == "↶" or value == "↩" or value == "❮"
     end
     if matches(gui.Name) then return true end
     if gui:IsA("TextLabel") or gui:IsA("TextButton") or gui:IsA("TextBox") then
@@ -172,7 +191,7 @@ local function isExcluded(gui)
     if isBackpackToggle(gui) or isEmoteToggle(gui) then
         return false
     end
-    return nameIsExcluded(gui.Name) or isInventoryItem(gui)
+    return nameIsExcluded(gui.Name) or isInventoryItem(gui) or isBackNavigation(gui)
 end
 
 local function isFullScreenContainer(gui)
@@ -234,7 +253,8 @@ local function hasExcludedBranch(node)
     -- inteiro; assim o botão não some e os botões irmãos (ex.: salvar/carregar) continuam escaláveis.
     for _, descendant in ipairs(node:GetDescendants()) do
         if (nameIsExcluded(descendant.Name) and not isBackpackToggle(descendant))
-            or isInventoryItem(descendant) then
+            or isInventoryItem(descendant)
+            or isBackNavigation(descendant) then
             return true
         end
     end
@@ -333,12 +353,9 @@ local crosshairRoot
 local crosshairImage
 local fallbackDot
 
-local guiParent = game:GetService("CoreGui")
-pcall(function()
-    if gethui then
-        guiParent = gethui()
-    end
-end)
+-- Parent to PlayerGui so the crosshair uses the same screen coordinates
+-- as the active camera, avoiding offsets caused by executor/CoreGui insets.
+local guiParent = lplr:WaitForChild("PlayerGui")
 
 pcall(function()
     local old = guiParent:FindFirstChild("BloxstrapCrosshair")
@@ -369,7 +386,9 @@ local function ensureCrosshair()
     crosshairRoot = Instance.new("Frame")
     crosshairRoot.Name = "CrosshairRoot"
     crosshairRoot.AnchorPoint = Vector2.new(0.5, 0.5)
-    crosshairRoot.Position = UDim2.new(0.5, 0, 0.5, 0)
+    local camera = workspace.CurrentCamera
+    local viewport = camera and camera.ViewportSize or Vector2.new(0, 0)
+    crosshairRoot.Position = UDim2.fromOffset(viewport.X * 0.5, viewport.Y * 0.5)
     crosshairRoot.Size = UDim2.new(0, 8, 0, 8)
     crosshairRoot.BackgroundTransparency = 1
     crosshairRoot.ZIndex = 100
@@ -398,6 +417,13 @@ end
 
 local function refreshCrosshairVisual()
     ensureCrosshair()
+
+    -- Recenter from the actual camera viewport (not the executor's UI root).
+    local camera = workspace.CurrentCamera
+    if camera then
+        local viewport = camera.ViewportSize
+        crosshairRoot.Position = UDim2.fromOffset(viewport.X * 0.5, viewport.Y * 0.5)
+    end
 
     local hasImage = type(chosenimage) == "string" and chosenimage ~= ""
     crosshairImage.Image = hasImage and chosenimage or ""
