@@ -207,18 +207,44 @@ end
 local function scaleTree(node)
     if not node or isExcluded(node) then return end
     if node:IsA("ScreenGui") then
+        -- Scale each full-screen root as ONE layout, not each button separately.
+        -- This keeps sibling controls together instead of breaking inventory/actions.
+        local roots = {}
         for _, child in ipairs(node:GetChildren()) do
-            if child:IsA("GuiObject") and not isExcluded(child) then scaleTree(child) end
+            if child:IsA("GuiObject") and not isExcluded(child) then
+                table.insert(roots, child)
+            end
+        end
+        local fullScreenRoots = {}
+        for _, child in ipairs(roots) do
+            if isFullScreenContainer(child) then
+                table.insert(fullScreenRoots, child)
+            end
+        end
+        if #fullScreenRoots > 0 then
+            for _, root in ipairs(fullScreenRoots) do
+                applyToGroup(root)
+            end
+            -- Scale remaining independent roots only as complete groups where possible.
+            for _, root in ipairs(roots) do
+                if not isFullScreenContainer(root) then
+                    scaleTree(root)
+                end
+            end
+        else
+            for _, root in ipairs(roots) do scaleTree(root) end
         end
         return
     end
     if not node:IsA("GuiObject") then return end
+
+    -- Do not descend through a full-screen root and attach scales to individual
+    -- descendants; that was what made buttons shrink/disappear independently.
     if isFullScreenContainer(node) then
-        for _, child in ipairs(node:GetChildren()) do
-            if child:IsA("GuiObject") and not isExcluded(child) then scaleTree(child) end
-        end
+        applyToGroup(node)
         return
     end
+
     local children = directGuiChildren(node)
     local groupCandidate = #children >= 2 and not hasExcludedBranch(node)
     if groupCandidate or #children == 0 then
