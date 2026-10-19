@@ -222,24 +222,18 @@ local function scaleTree(node)
 
     local children = directGuiChildren(node)
 
-    -- Scale a compact control group as one unit when it contains only eligible
-    -- controls. Never scale full-screen/layout containers: that shifts HUD positions.
-    local compactGroup = #children > 1
-        and not isFullScreenContainer(node)
-        and not hasExcludedBranch(node)
+    -- Scale sibling controls through their shared container, so spacing and
+    -- relative positions stay together. Only reject full-screen roots, which
+    -- would scale the whole HUD around the screen origin.
+    local compactGroup = #children > 1 and not isFullScreenContainer(node)
 
     if compactGroup then
         applyToGroup(node)
         return
     end
 
-    -- A button is a complete visual control: scale it and its icon/text together.
-    if node:IsA("GuiButton") then
-        applyToGroup(node)
-        return
-    end
-
-    if #children == 0 then
+    -- Single controls are scaled as a unit with their own icon/text descendants.
+    if node:IsA("GuiButton") or #children == 0 then
         applyToGroup(node)
         return
     end
