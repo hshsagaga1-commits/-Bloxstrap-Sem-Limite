@@ -73,11 +73,11 @@ MIN_SCALE = math.clamp(MIN_SCALE, 0.01, 0.75)
 
 local function nextScale(current)
     current = tonumber(current) or 1
-    if current > 0.50 then return 0.50 end
-    if current > 0.40 then return 0.40 end
+    if current > 0.30 then return 0.30 end
     if current > 0.20 then return 0.20 end
     if current > 0.10 then return 0.10 end
     if current > 0.05 then return 0.05 end
+    if current > 0.02 then return 0.02 end
     return MIN_SCALE
 end
 
@@ -94,27 +94,19 @@ local function nameIsExcluded(name)
     if name:find("chat", 1, true)
         or name:find("message", 1, true)
         or name:find("emote", 1, true)
-        or name:find("backpack", 1, true)
-        or name:find("inventory", 1, true)
-        or name:find("speedselect", 1, true)
-        or name:find("walkspeed", 1, true)
         or name:find("textbox", 1, true)
         or name:find("chatbar", 1, true)
         or name:find("textchat", 1, true)
         or name:find("quickchat", 1, true)
         or name:find("emotewheel", 1, true)
         or name:find("emote-wheel", 1, true)
-        or name:find("toolbelt", 1, true) then
+        then
         return true
     end
     return name == "touchgui"
         or name == "emotes"
         or name == "emotemenu"
         or name == "emote_menu"
-        or name == "menuframe"
-        or name == "gamemenu"
-        or name == "mainmenu"
-        or name == "pausemenu"
         or name == "robloxmenu"
         or name == "chat"
         or name == "chatwindow"
@@ -123,14 +115,6 @@ local function nameIsExcluded(name)
         or name == "textchat"
         or name == "channelsbar"
         or name == "bubblechat"
-        or name == "backpack"
-        or name == "backpackgui"
-        or name == "inventory"
-        or name == "toolinventory"
-        or name == "speed"
-        or name == "speedselector"
-        or name == "speedselect"
-        or name == "walkspeed"
         or name == "emoteanimation"
 end
 
@@ -174,7 +158,7 @@ local function applyToGroup(gui)
     else
         scaler = Instance.new("UIScale")
         scaler.Name = "__BloxstrapUnlimitedScale"
-        scaler.Scale = 0.50
+        scaler.Scale = 0.30
         scaler.Parent = gui
     end
 end
@@ -245,7 +229,7 @@ local function scaleTree(node)
 
     -- If the branch is a single actionable control, still scale it rather
     -- than silently doing nothing. Its anchor point remains unchanged.
-    if node:IsA("GuiButton") and #children == 0 then
+    if #children == 0 then
         applyToGroup(node)
         return
     end
@@ -296,7 +280,7 @@ end
 
 local guiscale = Appearance:AddToggle({
     Name = "GUIScaler",
-    Description = "Strong grouped UI scaling; chat, emotes and backpack are excluded",
+    Description = "Stronger grouped UI scaling; chat and emotes are excluded",
     Default = Bloxstrap.Config.GUIScale,
     Callback = function(call)
         Bloxstrap.UpdateConfig("GUIScale", call)
