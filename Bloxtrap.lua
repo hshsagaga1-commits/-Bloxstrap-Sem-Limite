@@ -93,25 +93,23 @@ end
 
 local function nameIsExcluded(name)
     name = string.lower(name)
+    -- Não excluir todo nome com "emote": o botão de abrir emotes também deve diminuir.
+    -- Protege somente o menu/roda aberta de emotes e a interface de chat.
     if name:find("chat", 1, true)
         or name:find("message", 1, true)
-        or name:find("emote", 1, true)
-        or name:find("backpack", 1, true)
-        or name:find("inventory", 1, true)
-        or name:find("toolbelt", 1, true)
         or name:find("textbox", 1, true)
         or name:find("chatbar", 1, true)
         or name:find("textchat", 1, true)
         or name:find("quickchat", 1, true)
         or name:find("emotewheel", 1, true)
         or name:find("emote-wheel", 1, true)
+        or name:find("emotemenu", 1, true)
+        or name:find("emote_menu", 1, true)
         then return true end
-    return name == "touchgui" or name == "emotes" or name == "emotemenu"
-        or name == "emote_menu" or name == "robloxmenu" or name == "chat"
+    return name == "touchgui" or name == "emotesmenu"
+        or name == "robloxmenu" or name == "chat"
         or name == "chatwindow" or name == "chatbar" or name == "chatinput"
         or name == "textchat" or name == "channelsbar" or name == "bubblechat"
-        or name == "backpack" or name == "backpackgui" or name == "inventory"
-        or name == "toolinventory" or name == "toolbelt" or name == "emoteanimation"
 end
 
 local function isBackpackToggle(gui)
@@ -124,15 +122,17 @@ local function isInventoryItem(gui)
     local function matches(value)
         value = string.lower(tostring(value or ""))
         -- Preserve inventory items and the contextual action shown while holding them.
+        -- Item na mão e botão contextual de soltar/colocar ficam intactos.
+        value = value:gsub("[%[%]%(%)_%-]", " ")
         return value:find("velocidade", 1, true) ~= nil
             or value == "cola"
-            or value:find("cola_", 1, true) ~= nil
-            or value:find("_cola", 1, true) ~= nil
+            or value:find("cola ", 1, true) ~= nil
+            or value:find(" colocar no chao", 1, true) ~= nil
+            or value:find(" colocar no chão", 1, true) ~= nil
             or value:find("colocar no chao", 1, true) ~= nil
             or value:find("colocar no chão", 1, true) ~= nil
             or value:find("soltar", 1, true) ~= nil
-            or value == "drop"
-            or value:find("dropitem", 1, true) ~= nil
+            or value:find("drop", 1, true) ~= nil
     end
     if matches(gui.Name) then return true end
     if gui:IsA("TextLabel") or gui:IsA("TextButton") or gui:IsA("TextBox") then
@@ -193,8 +193,11 @@ local function directGuiChildren(node)
 end
 
 local function hasExcludedBranch(node)
+    -- Se houver um botão contextual protegido dentro do grupo, não escalar o grupo
+    -- inteiro; assim o botão não some e os botões irmãos (ex.: salvar/carregar) continuam escaláveis.
     for _, descendant in ipairs(node:GetDescendants()) do
-        if nameIsExcluded(descendant.Name) or isInventoryItem(descendant) then
+        if (nameIsExcluded(descendant.Name) and not isBackpackToggle(descendant))
+            or isInventoryItem(descendant) then
             return true
         end
     end
