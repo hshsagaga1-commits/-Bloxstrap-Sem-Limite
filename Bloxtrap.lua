@@ -126,10 +126,16 @@ local function nameIsExcluded(name)
         or name == "emoteanimation"
 end
 
+local function isBackpackToggle(gui)
+    return gui and gui:IsA("GuiButton")
+        and string.lower(gui.Name):find("backpack", 1, true) ~= nil
+end
+
 local function isExcluded(gui)
     local current = gui
     while current and current ~= lplr.PlayerGui do
-        if nameIsExcluded(current.Name) then
+        -- Let the backpack opener itself shrink; exclude the inventory panel/items.
+        if nameIsExcluded(current.Name) and not isBackpackToggle(current) then
             return true
         end
         current = current.Parent
@@ -162,7 +168,9 @@ local function applyToGroup(gui)
 
     local scaler = getDirectScale(gui)
     if scaler then
-        scaler.Scale = nextScale(scaler.Scale)
+        if scaler.Scale > 0.30 then
+            scaler.Scale = 0.30
+        end
     else
         scaler = Instance.new("UIScale")
         scaler.Name = "__BloxstrapUnlimitedScale"
@@ -301,6 +309,20 @@ local guiscale = Appearance:AddToggle({
                 end
             end
             applyScalePass()
+            table.insert(scalerConnections, lplr.CharacterAdded:Connect(function()
+                task.defer(function()
+                    if lplr and lplr.Parent then
+                        applyScalePass()
+                    end
+                end)
+            end))
+            table.insert(scalerConnections, lplr.PlayerGui.DescendantAdded:Connect(function(child)
+                task.defer(function()
+                    if child and child.Parent and child:IsA("GuiObject") and not isExcluded(child) then
+                        applyScalePass()
+                    end
+                end)
+            end))
             funnycon = lplr.PlayerGui.ChildAdded:Connect(function(gui)
                 task.defer(function()
                     if gui and gui.Parent == lplr.PlayerGui and gui:IsA("ScreenGui") and not isExcluded(gui) then
