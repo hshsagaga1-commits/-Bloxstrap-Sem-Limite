@@ -204,24 +204,6 @@ local function hasExcludedBranch(node)
     return false
 end
 
-local function anchorAtCurrentCenter(gui)
-    -- Keep the container's current center fixed while UIScale changes its size.
-    -- Convert top-left anchoring to center anchoring without changing its current center.
-    if not gui or not gui:IsA("GuiObject") then return end
-    if gui:GetAttribute("__BloxstrapCenterAnchored") then return end
-
-    local size = gui.Size
-    local pos = gui.Position
-    gui.Position = UDim2.new(
-        pos.X.Scale + size.X.Scale * 0.5,
-        pos.X.Offset + size.X.Offset * 0.5,
-        pos.Y.Scale + size.Y.Scale * 0.5,
-        pos.Y.Offset + size.Y.Offset * 0.5
-    )
-    gui.AnchorPoint = Vector2.new(0.5, 0.5)
-    gui:SetAttribute("__BloxstrapCenterAnchored", true)
-end
-
 local function scaleTree(node)
     if not node or isExcluded(node) then return end
     if node:IsA("ScreenGui") then
@@ -259,9 +241,8 @@ local function scaleTree(node)
     -- Do not descend through a full-screen root and attach scales to individual
     -- descendants; that was what made buttons shrink/disappear independently.
     if isFullScreenContainer(node) then
-        -- Scale the whole interface around its existing center so it shrinks in place,
-        -- instead of drifting toward a corner. Keep the rest of the scaling logic intact.
-        anchorAtCurrentCenter(node)
+        -- Preserve the container's original AnchorPoint and Position.
+        -- UIScale alone changes the rendered size without rewriting its layout coordinates.
         applyToGroup(node)
         return
     end
