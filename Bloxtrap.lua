@@ -100,19 +100,12 @@ local function scaleRoot(gui, isCoreGui)
     local scaler = getScale(gui)
     if scaler then
         scaler.Scale = nextScale(scaler.Scale)
-    elseif gui:IsA("GuiObject") then
+    else
+        -- Match upstream Bloxstrap: add the scaler to the same top-level GUI root.
         scaler = Instance.new("UIScale")
         scaler.Name = "__BloxstrapUnlimitedScale"
         scaler.Scale = 0.7
         scaler.Parent = gui
-    else
-        -- ScreenGui itself is not a visual object; preserve the original
-        -- Bloxstrap behavior by scaling its existing UIScale or GuiObject roots.
-        for _, child in ipairs(gui:GetChildren()) do
-            if child:IsA("GuiObject") then
-                scaleRoot(child, isCoreGui)
-            end
-        end
     end
 end
 
@@ -159,9 +152,6 @@ local guiscale = Appearance:AddToggle({
             scaleExistingRoots(coreGui, true)
             watchContainer(lplr.PlayerGui, false)
             watchContainer(coreGui, true)
-            funnycon = lplr.PlayerGui.ChildAdded:Connect(function(gui)
-                if gui.Name == "TouchGui" then return end
-            end)
         else
             -- Off only stops future scaling; current scale is intentionally kept.
             disconnectScaler()
