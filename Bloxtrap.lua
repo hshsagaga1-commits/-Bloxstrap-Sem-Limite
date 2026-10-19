@@ -68,7 +68,7 @@ end
 local scalePatched = [=[
 local funnycon
 local scalerConnections = {}
--- Cada ativação do toggle desce só um degrau; revarreduras não diminuem mais.
+-- A interface só é examinada quando o usuário ativa o toggle.
 local MIN_SCALE = 0.10
 local activeScale = 1.00
 
@@ -105,27 +105,13 @@ local function nameIsExcluded(name)
         or name:find("quickchat", 1, true)
         or name:find("emotewheel", 1, true)
         or name:find("emote-wheel", 1, true)
-        then
-        return true
-    end
-    return name == "touchgui"
-        or name == "emotes"
-        or name == "emotemenu"
-        or name == "emote_menu"
-        or name == "robloxmenu"
-        or name == "chat"
-        or name == "chatwindow"
-        or name == "chatbar"
-        or name == "chatinput"
-        or name == "textchat"
-        or name == "channelsbar"
-        or name == "bubblechat"
-        or name == "backpack"
-        or name == "backpackgui"
-        or name == "inventory"
-        or name == "toolinventory"
-        or name == "toolbelt"
-        or name == "emoteanimation"
+        then return true end
+    return name == "touchgui" or name == "emotes" or name == "emotemenu"
+        or name == "emote_menu" or name == "robloxmenu" or name == "chat"
+        or name == "chatwindow" or name == "chatbar" or name == "chatinput"
+        or name == "textchat" or name == "channelsbar" or name == "bubblechat"
+        or name == "backpack" or name == "backpackgui" or name == "inventory"
+        or name == "toolinventory" or name == "toolbelt" or name == "emoteanimation"
 end
 
 local function isBackpackToggle(gui)
@@ -133,35 +119,26 @@ local function isBackpackToggle(gui)
         and string.lower(gui.Name):find("backpack", 1, true) ~= nil
 end
 
--- Protege os próprios itens da mochila, mesmo quando o nome do objeto é genérico.
 local function isInventoryItem(gui)
     if not gui then return false end
     local function matches(value)
         value = string.lower(tostring(value or ""))
-        return value == "velocidade" or value == "cola"
-            or value:find("velocidade", 1, true) ~= nil
-            or value:find("cola", 1, true) ~= nil
+        return value:find("velocidade", 1, true) ~= nil
+            or value == "cola"
+            or value:find("cola_", 1, true) ~= nil
+            or value:find("_cola", 1, true) ~= nil
     end
     if matches(gui.Name) then return true end
-    pcall(function()
-        if gui:IsA("TextLabel") or gui:IsA("TextButton") or gui:IsA("TextBox") then
-            if matches(gui.Text) then return true end
-        end
-    end)
-    local found = false
-    for _, descendant in ipairs(gui:GetDescendants()) do
-        if matches(descendant.Name) then return true end
-        if descendant:IsA("TextLabel") or descendant:IsA("TextButton") or descendant:IsA("TextBox") then
-            if matches(descendant.Text) then found = true; break end
-        end
+    if gui:IsA("TextLabel") or gui:IsA("TextButton") or gui:IsA("TextBox") then
+        local ok, value = pcall(function() return gui.Text end)
+        if ok and matches(value) then return true end
     end
-    return found
+    return false
 end
 
 local function isExcluded(gui)
     local current = gui
     while current and current ~= lplr.PlayerGui do
-        -- O botão que abre a mochila pode diminuir; os itens e o painel ficam intactos.
         if (nameIsExcluded(current.Name) and not isBackpackToggle(current))
             or isInventoryItem(current) then
             return true
@@ -174,32 +151,23 @@ end
 local function isFullScreenContainer(gui)
     if not gui:IsA("GuiObject") then return false end
     local size = gui.Size
-    if size.X.Scale >= 0.90 and size.Y.Scale >= 0.90 then
-        return true
-    end
-
+    if size.X.Scale >= 0.90 and size.Y.Scale >= 0.90 then return true end
     local camera = workspace.CurrentCamera
     if camera then
         local viewport = camera.ViewportSize
         local absolute = gui.AbsoluteSize
         if viewport.X > 0 and viewport.Y > 0
             and absolute.X >= viewport.X * 0.90
-            and absolute.Y >= viewport.Y * 0.90 then
-            return true
-        end
+            and absolute.Y >= viewport.Y * 0.90 then return true end
     end
     return false
 end
 
 local function applyToGroup(gui)
     if not gui:IsA("GuiObject") or isExcluded(gui) then return end
-
     local scaler = getDirectScale(gui)
     if scaler then
-        -- Nunca desce em revarreduras; só usa o degrau escolhido ao ativar.
-        if scaler.Scale > activeScale then
-            scaler.Scale = activeScale
-        end
+        scaler.Scale = activeScale
     else
         scaler = Instance.new("UIScale")
         scaler.Name = "__BloxstrapUnlimitedScale"
@@ -220,167 +188,53 @@ end
 
 local function hasExcludedBranch(node)
     for _, descendant in ipairs(node:GetDescendants()) do
-        if nameIsExcluded(descendant.Name) or isInventoryItem(descendant) then
-            return true
-        end
+        if nameIsExcluded(descendant.Name) then return true end
     end
     return false
 end
 
-local function hasLayout(node)
-    for _, child in ipairs(node:GetChildren()) do
-        if child:IsA("UIListLayout") or child:IsA("UIGridLayout")
-            or child:IsA("UITableLayout") or child:IsA("UIPageLayout") then
-            return true
-        end
-    end
-    return false
-end
-
--- Scale a shared container so sibling controls keep their relative layout.
--- Never destroy layouts; UIScale scales the group without baking positions.
 local function scaleTree(node)
     if not node or isExcluded(node) then return end
-
     if node:IsA("ScreenGui") then
         for _, child in ipairs(node:GetChildren()) do
-            if child:IsA("GuiObject") and not isExcluded(child) then
-                scaleTree(child)
-            end
+            if child:IsA("GuiObject") and not isExcluded(child) then scaleTree(child) end
         end
         return
     end
     if not node:IsA("GuiObject") then return end
-
     if isFullScreenContainer(node) then
         for _, child in ipairs(node:GetChildren()) do
-            if child:IsA("GuiObject") and not isExcluded(child) then
-                scaleTree(child)
-            end
+            if child:IsA("GuiObject") and not isExcluded(child) then scaleTree(child) end
         end
         return
     end
-
     local children = directGuiChildren(node)
     local groupCandidate = #children >= 2 and not hasExcludedBranch(node)
-
-    -- Prefer the smallest shared container that owns sibling controls.
-    -- UIScale is applied to the container rather than each child, so the
-    -- controls remain grouped (e.g. life + speed) instead of drifting apart.
-    if groupCandidate then
+    if groupCandidate or #children == 0 then
         applyToGroup(node)
         return
     end
-
-    -- If the branch is a single actionable control, still scale it rather
-    -- than silently doing nothing. Its anchor point remains unchanged.
-    if #children == 0 then
-        applyToGroup(node)
-        return
-    end
-
-    for _, child in ipairs(children) do
-        scaleTree(child)
-    end
+    for _, child in ipairs(children) do scaleTree(child) end
 end
-
-local function disconnectScaler()
-    if funnycon then
-        pcall(function() funnycon:Disconnect() end)
-        funnycon = nil
-    end
-    for _, connection in ipairs(scalerConnections) do
-        pcall(function() connection:Disconnect() end)
-    end
-    table.clear(scalerConnections)
-end
-
-local function watchScreenGui(screenGui)
-    if not screenGui:IsA("ScreenGui") or isExcluded(screenGui)
-        or screenGui:GetAttribute("__BloxstrapScaleWatcher") then
-        return
-    end
-    screenGui:SetAttribute("__BloxstrapScaleWatcher", true)
-
-    local connection = screenGui.DescendantAdded:Connect(function(child)
-        task.defer(function()
-            if child and child.Parent and child:IsA("GuiObject") and not isExcluded(child) then
-                -- Re-scan the ScreenGui so newly added buttons join their
-                -- correct shared group instead of being scaled independently.
-                if screenGui.Parent then scaleTree(screenGui) end
-            end
-        end)
-    end)
-    table.insert(scalerConnections, connection)
-end
-
-local scalePassQueued = false
 
 local function applyScalePass()
+    -- One synchronous pass only. No DescendantAdded/ChildAdded/respawn watchers.
     for _, gui in ipairs(lplr.PlayerGui:GetChildren()) do
         if gui:IsA("ScreenGui") and not isExcluded(gui) then
             scaleTree(gui)
-            watchScreenGui(gui)
         end
     end
-end
-
--- Batch rapid UI creation into one scan instead of rescanning the whole UI
--- tree for every individual GuiObject added by the game.
-local function requestScalePass()
-    if scalePassQueued then return end
-    scalePassQueued = true
-    task.defer(function()
-        scalePassQueued = false
-        if lplr and lplr.Parent and lplr:FindFirstChild("PlayerGui") then
-            applyScalePass()
-        end
-    end)
 end
 
 local guiscale = Appearance:AddToggle({
     Name = "GUIScaler",
-    Description = "Stronger grouped UI scaling; chat and emotes are excluded",
+    Description = "Reduz a interface apenas quando você ativa o toggle",
     Default = Bloxstrap.Config.GUIScale,
     Callback = function(call)
         Bloxstrap.UpdateConfig("GUIScale", call)
         if call then
-            disconnectScaler()
             activeScale = nextScale(activeScale)
-            -- Clear stale watcher markers so a re-enabled toggle can reconnect.
-            for _, gui in ipairs(lplr.PlayerGui:GetChildren()) do
-                if gui:IsA("ScreenGui") then
-                    gui:SetAttribute("__BloxstrapScaleWatcher", nil)
-                end
-            end
             applyScalePass()
-            table.insert(scalerConnections, lplr.CharacterAdded:Connect(function()
-                task.defer(function()
-                    if lplr and lplr.Parent then
-                        applyScalePass()
-                    end
-                end)
-            end))
-            table.insert(scalerConnections, lplr.PlayerGui.DescendantAdded:Connect(function(child)
-                if child and child:IsA("GuiObject") and not isExcluded(child) then
-                    requestScalePass()
-                end
-            end))
-            funnycon = lplr.PlayerGui.ChildAdded:Connect(function(gui)
-                task.defer(function()
-                    if gui and gui.Parent == lplr.PlayerGui and gui:IsA("ScreenGui") and not isExcluded(gui) then
-                        scaleTree(gui)
-                        watchScreenGui(gui)
-                    end
-                end)
-            end)
-        else
-            disconnectScaler()
-            for _, gui in ipairs(lplr.PlayerGui:GetChildren()) do
-                if gui:IsA("ScreenGui") then
-                    gui:SetAttribute("__BloxstrapScaleWatcher", nil)
-                end
-            end
         end
     end
 })
