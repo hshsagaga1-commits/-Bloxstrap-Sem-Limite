@@ -110,6 +110,9 @@ local function nameIsExcluded(name)
         or name == "robloxmenu" or name == "chat"
         or name == "chatwindow" or name == "chatbar" or name == "chatinput"
         or name == "textchat" or name == "channelsbar" or name == "bubblechat"
+        -- Never scale aiming reticles/crosshairs with the interface.
+        or name:find("crosshair", 1, true) ~= nil
+        or name:find("crosshairroot", 1, true) ~= nil
 end
 
 local function isBackpackToggle(gui)
