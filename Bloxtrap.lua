@@ -93,6 +93,17 @@ end
 
 local function nameIsExcluded(name)
     name = string.lower(name)
+    if name:find("chat", 1, true)
+        or name:find("message", 1, true)
+        or name:find("emote", 1, true)
+        or name:find("backpack", 1, true)
+        or name:find("inventory", 1, true)
+        or name:find("speedselect", 1, true)
+        or name:find("walkspeed", 1, true)
+        or name:find("textbox", 1, true)
+        or name:find("chatbar", 1, true) then
+        return true
+    end
     return name == "touchgui"
         or name == "emotes"
         or name == "emotemenu"
@@ -109,6 +120,15 @@ local function nameIsExcluded(name)
         or name == "textchat"
         or name == "channelsbar"
         or name == "bubblechat"
+        or name == "backpack"
+        or name == "backpackgui"
+        or name == "inventory"
+        or name == "toolinventory"
+        or name == "speed"
+        or name == "speedselector"
+        or name == "speedselect"
+        or name == "walkspeed"
+        or name == "emoteanimation"
 end
 
 local function isExcluded(gui)
@@ -211,13 +231,6 @@ local function scaleTree(node)
 
     local children = directGuiChildren(node)
     local groupCandidate = #children >= 2 and not hasExcludedBranch(node)
-
-    -- Avoid scaling giant chat/message panels; preserve chat/input UI even when nested.
-    local lowerName = string.lower(node.Name)
-    if lowerName:find("chat", 1, true) or lowerName:find("message", 1, true)
-        or lowerName:find("textbox", 1, true) or lowerName:find("input", 1, true) then
-        return
-    end
 
     -- Prefer the smallest shared container that owns sibling controls.
     -- UIScale is applied to the container rather than each child, so the
