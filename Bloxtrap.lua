@@ -93,31 +93,22 @@ end
 
 local function nameIsExcluded(name)
     name = string.lower(name)
-    -- Exclude opened emote panels/wheels and backpack/inventory contents,
-    -- but not the standalone buttons that open those interfaces.
-    if name:find("chat", 1, true)
-        or name:find("message", 1, true)
-        or name:find("textbox", 1, true)
-        or name:find("chatbar", 1, true)
-        or name:find("textchat", 1, true)
-        or name:find("quickchat", 1, true)
-        or name:find("emotewheel", 1, true)
-        or name:find("emote-wheel", 1, true)
-        or name:find("emotemenu", 1, true)
-        or name:find("emote_menu", 1, true)
-        or name:find("inventory", 1, true)
-        or name:find("backpackframe", 1, true)
-        or name:find("backpackcontainer", 1, true)
-        or name:find("emotetab", 1, true)
-        then return true end
-    return name == "touchgui" or name == "emotesmenu"
-        or name == "robloxmenu" or name == "chat"
-        or name == "chatwindow" or name == "chatbar" or name == "chatinput"
-        or name == "textchat" or name == "channelsbar" or name == "bubblechat"
-        or name == "backpack" or name == "backpackgui"
-        or name == "emotes" or name == "emotewindow"
-        or name:find("crosshair", 1, true) ~= nil
-        or name:find("crosshairroot", 1, true) ~= nil
+
+    -- Exclude the entire opened emote picker and backpack/inventory panels.
+    -- The separate opener buttons are exempted by isExcluded below.
+    if name:find("emote", 1, true) ~= nil
+        or name:find("backpack", 1, true) ~= nil
+        or name:find("inventory", 1, true) ~= nil
+        or name:find("chat", 1, true) ~= nil
+        or name:find("message", 1, true) ~= nil
+        or name:find("textbox", 1, true) ~= nil
+        or name:find("quickchat", 1, true) ~= nil
+        or name:find("crosshair", 1, true) ~= nil then
+        return true
+    end
+
+    return name == "touchgui" or name == "robloxmenu"
+        or name == "channelsbar" or name == "bubblechat"
 end
 
 local function isBackpackToggle(gui)
@@ -179,7 +170,9 @@ end
 local function isExcluded(gui)
     if not gui then return true end
 
-    -- Ignore contents of emote/backpack panels, but not their separate opener buttons.
+    -- If this object is inside an emote/backpack panel, exclude it first.
+    -- This prevents the picker contents from shrinking and keeps the opener
+    -- buttons working because those buttons live outside the panel.
     local current = gui.Parent
     while current and current ~= lplr.PlayerGui do
         if nameIsExcluded(current.Name) or isInventoryItem(current) then
