@@ -73,10 +73,8 @@ MIN_SCALE = math.clamp(MIN_SCALE, 0.01, 0.75)
 
 local function nextScale(current)
     current = tonumber(current) or 1
-    if current > 0.75 then return 0.75 end
-    if current > 0.60 then return 0.60 end
-    if current > 0.45 then return 0.45 end
-    if current > 0.30 then return 0.30 end
+    if current > 0.50 then return 0.50 end
+    if current > 0.40 then return 0.40 end
     if current > 0.20 then return 0.20 end
     if current > 0.10 then return 0.10 end
     if current > 0.05 then return 0.05 end
@@ -101,7 +99,12 @@ local function nameIsExcluded(name)
         or name:find("speedselect", 1, true)
         or name:find("walkspeed", 1, true)
         or name:find("textbox", 1, true)
-        or name:find("chatbar", 1, true) then
+        or name:find("chatbar", 1, true)
+        or name:find("textchat", 1, true)
+        or name:find("quickchat", 1, true)
+        or name:find("emotewheel", 1, true)
+        or name:find("emote-wheel", 1, true)
+        or name:find("toolbelt", 1, true) then
         return true
     end
     return name == "touchgui"
@@ -171,7 +174,7 @@ local function applyToGroup(gui)
     else
         scaler = Instance.new("UIScale")
         scaler.Name = "__BloxstrapUnlimitedScale"
-        scaler.Scale = 0.75
+        scaler.Scale = 0.50
         scaler.Parent = gui
     end
 end
@@ -293,7 +296,7 @@ end
 
 local guiscale = Appearance:AddToggle({
     Name = "GUIScaler",
-    Description = "Progressive grouped UI scale; preserves layouts and excludes game menus/emotes",
+    Description = "Strong grouped UI scaling; chat, emotes and backpack are excluded",
     Default = Bloxstrap.Config.GUIScale,
     Callback = function(call)
         Bloxstrap.UpdateConfig("GUIScale", call)
