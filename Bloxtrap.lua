@@ -152,6 +152,19 @@ local function directGuiChildren(node)
     return result
 end
 
+local function containsExcludedDescendant(node)
+    for _, descendant in ipairs(node:GetDescendants()) do
+        local name = string.lower(descendant.Name)
+        if name == "touchgui"
+            or string.find(name, "emote", 1, true)
+            or string.find(name, "menu", 1, true)
+            or string.find(name, "robloxmenu", 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
 -- Scale the smallest shared container that holds a group of controls.
 -- Never scale individual leaf buttons: that makes HUD controls drift apart.
 -- Menu and emote branches are left untouched.
@@ -179,7 +192,7 @@ local function scaleTree(node)
     end
 
     local children = directGuiChildren(node)
-    if #children >= 2 then
+    if #children >= 2 and not containsExcludedDescendant(node) then
         applyToGroup(node)
         return
     end
