@@ -158,19 +158,21 @@ local function isInventoryItem(gui)
 end
 
 local function isExcluded(gui)
-    -- Always allow the buttons that open backpack/emotes to be scaled.
-    if isBackpackToggle(gui) or isEmoteToggle(gui) then return false end
-    local current = gui
+    if not gui then return true end
+
+    -- Ignore contents of emote/backpack panels, but not their separate opener buttons.
+    local current = gui.Parent
     while current and current ~= lplr.PlayerGui do
-        if ((nameIsExcluded(current.Name)
-                and not isBackpackToggle(current)
-                and not isEmoteToggle(current))
-            or isInventoryItem(current)) then
+        if nameIsExcluded(current.Name) or isInventoryItem(current) then
             return true
         end
         current = current.Parent
     end
-    return false
+
+    if isBackpackToggle(gui) or isEmoteToggle(gui) then
+        return false
+    end
+    return nameIsExcluded(gui.Name) or isInventoryItem(gui)
 end
 
 local function isFullScreenContainer(gui)
@@ -264,22 +266,18 @@ local function scaleTree(node)
 
     local children = directGuiChildren(node)
 
-    -- Group only containers whose child positions are controlled by Roblox
-    -- layout objects. Their siblings shrink as one unit and keep their layout.
-    -- Manually positioned frames are not scaled, preventing screen-position drift.
-    if #children > 1 and not isFullScreenContainer(node)
-        and hasGroupLayout(node) then
+    -- Restore the grouped version requested: keep sibling controls under one
+    -- scaler. Some groups can shift; user will adjust their positions manually.
+    local compactGroup = #children > 1
+        and not isFullScreenContainer(node)
+        and not hasExcludedBranch(node)
+
+    if compactGroup then
         applyToGroup(node)
         return
     end
 
-    -- Scale complete buttons, including nested icon and text, in place.
-    if node:IsA("GuiButton") then
-        applyToGroup(node)
-        return
-    end
-
-    if #children == 0 then
+    if node:IsA("GuiButton") or #children == 0 then
         applyToGroup(node)
         return
     end
