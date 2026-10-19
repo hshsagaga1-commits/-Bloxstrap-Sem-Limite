@@ -91,14 +91,23 @@ local function getDirectScale(gui)
     end
 end
 
+local function nameIsExcluded(name)
+    name = string.lower(name)
+    return name == "touchgui"
+        or name == "emotes"
+        or name == "emotemenu"
+        or name == "emote_menu"
+        or name == "menuframe"
+        or name == "gamemenu"
+        or name == "mainmenu"
+        or name == "pausemenu"
+        or name == "robloxmenu"
+end
+
 local function isExcluded(gui)
     local current = gui
     while current and current ~= lplr.PlayerGui do
-        local name = string.lower(current.Name)
-        if name == "touchgui"
-            or string.find(name, "emote", 1, true)
-            or string.find(name, "menu", 1, true)
-            or string.find(name, "robloxmenu", 1, true) then
+        if nameIsExcluded(current.Name) then
             return true
         end
         current = current.Parent
@@ -127,9 +136,7 @@ local function isFullScreenContainer(gui)
 end
 
 local function applyToGroup(gui)
-    if not gui:IsA("GuiObject") or isExcluded(gui) then
-        return
-    end
+    if not gui:IsA("GuiObject") or isExcluded(gui) then return end
 
     local scaler = getDirectScale(gui)
     if scaler then
@@ -152,22 +159,27 @@ local function directGuiChildren(node)
     return result
 end
 
-local function containsExcludedDescendant(node)
+local function hasExcludedBranch(node)
     for _, descendant in ipairs(node:GetDescendants()) do
-        local name = string.lower(descendant.Name)
-        if name == "touchgui"
-            or string.find(name, "emote", 1, true)
-            or string.find(name, "menu", 1, true)
-            or string.find(name, "robloxmenu", 1, true) then
+        if nameIsExcluded(descendant.Name) then
             return true
         end
     end
     return false
 end
 
--- Scale the smallest shared container that holds a group of controls.
--- Never scale individual leaf buttons: that makes HUD controls drift apart.
--- Menu and emote branches are left untouched.
+local function hasLayout(node)
+    for _, child in ipairs(node:GetChildren()) do
+        if child:IsA("UIListLayout") or child:IsA("UIGridLayout")
+            or child:IsA("UITableLayout") or child:IsA("UIPageLayout") then
+            return true
+        end
+    end
+    return false
+end
+
+-- Scale a shared container so sibling controls keep their relative layout.
+-- Never destroy layouts; UIScale scales the group without baking positions.
 local function scaleTree(node)
     if not node or isExcluded(node) then return end
 
@@ -179,7 +191,6 @@ local function scaleTree(node)
         end
         return
     end
-
     if not node:IsA("GuiObject") then return end
 
     if isFullScreenContainer(node) then
@@ -192,13 +203,21 @@ local function scaleTree(node)
     end
 
     local children = directGuiChildren(node)
-    if #children >= 2 and not containsExcludedDescendant(node) then
+    local groupCandidate = #children >= 2 and not hasExcludedBranch(node)
+
+    -- Prefer a container that owns a layout or multiple sibling controls.
+    if groupCandidate then
         applyToGroup(node)
         return
     end
 
-    -- Single-child wrappers are structural, so keep walking until the shared
-    -- container for sibling controls is found. Do not shrink lone buttons.
+    -- If the branch is a single actionable control, still scale it rather
+    -- than silently doing nothing. Its anchor point remains unchanged.
+    if node:IsA("GuiButton") and #children == 0 then
+        applyToGroup(node)
+        return
+    end
+
     for _, child in ipairs(children) do
         scaleTree(child)
     end
@@ -216,14 +235,18 @@ local function disconnectScaler()
 end
 
 local function watchScreenGui(screenGui)
-    if not screenGui:IsA("ScreenGui") or isExcluded(screenGui) then
+    if not screenGui:IsA("ScreenGui") or isExcluded(screenGui)
+        or screenGui:GetAttribute("__BloxstrapScaleWatcher") then
         return
     end
+    screenGui:SetAttribute("__BloxstrapScaleWatcher", true)
 
-    local connection = screenGui.ChildAdded:Connect(function(child)
+    local connection = screenGui.DescendantAdded:Connect(function(child)
         task.defer(function()
-            if child and child.Parent == screenGui and not isExcluded(child) then
-                scaleTree(child)
+            if child and child.Parent and child:IsA("GuiObject") and not isExcluded(child) then
+                -- Re-scan the ScreenGui so newly added buttons join their
+                -- correct shared group instead of being scaled independently.
+                if screenGui.Parent then scaleTree(screenGui) end
             end
         end)
     end)
@@ -232,7 +255,7 @@ end
 
 local function applyScalePass()
     for _, gui in ipairs(lplr.PlayerGui:GetChildren()) do
-        if not isExcluded(gui) then
+        if gui:IsA("ScreenGui") and not isExcluded(gui) then
             scaleTree(gui)
             watchScreenGui(gui)
         end
@@ -241,24 +264,34 @@ end
 
 local guiscale = Appearance:AddToggle({
     Name = "GUIScaler",
-    Description = "Progressive grouped UI scale; leaves menus/emotes and lone buttons untouched",
+    Description = "Progressive grouped UI scale; preserves layouts and excludes game menus/emotes",
     Default = Bloxstrap.Config.GUIScale,
     Callback = function(call)
         Bloxstrap.UpdateConfig("GUIScale", call)
         if call then
             disconnectScaler()
+            -- Clear stale watcher markers so a re-enabled toggle can reconnect.
+            for _, gui in ipairs(lplr.PlayerGui:GetChildren()) do
+                if gui:IsA("ScreenGui") then
+                    gui:SetAttribute("__BloxstrapScaleWatcher", nil)
+                end
+            end
             applyScalePass()
             funnycon = lplr.PlayerGui.ChildAdded:Connect(function(gui)
                 task.defer(function()
-                    if gui and gui.Parent == lplr.PlayerGui and not isExcluded(gui) then
+                    if gui and gui.Parent == lplr.PlayerGui and gui:IsA("ScreenGui") and not isExcluded(gui) then
                         scaleTree(gui)
                         watchScreenGui(gui)
                     end
                 end)
             end)
         else
-            -- Turning off stops future scaling without restoring the current size.
             disconnectScaler()
+            for _, gui in ipairs(lplr.PlayerGui:GetChildren()) do
+                if gui:IsA("ScreenGui") then
+                    gui:SetAttribute("__BloxstrapScaleWatcher", nil)
+                end
+            end
         end
     end
 })
