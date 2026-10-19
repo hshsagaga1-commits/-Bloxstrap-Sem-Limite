@@ -74,8 +74,8 @@ MIN_SCALE = math.clamp(MIN_SCALE, 0.01, 0.75)
 local function nextScale(current)
     current = tonumber(current) or 1
     if current > 0.75 then return 0.75 end
-    if current > 0.50 then return 0.50 end
-    if current > 0.40 then return 0.40 end
+    if current > 0.60 then return 0.60 end
+    if current > 0.45 then return 0.45 end
     if current > 0.30 then return 0.30 end
     if current > 0.20 then return 0.20 end
     if current > 0.10 then return 0.10 end
@@ -102,6 +102,13 @@ local function nameIsExcluded(name)
         or name == "mainmenu"
         or name == "pausemenu"
         or name == "robloxmenu"
+        or name == "chat"
+        or name == "chatwindow"
+        or name == "chatbar"
+        or name == "chatinput"
+        or name == "textchat"
+        or name == "channelsbar"
+        or name == "bubblechat"
 end
 
 local function isExcluded(gui)
@@ -205,7 +212,16 @@ local function scaleTree(node)
     local children = directGuiChildren(node)
     local groupCandidate = #children >= 2 and not hasExcludedBranch(node)
 
-    -- Prefer a container that owns a layout or multiple sibling controls.
+    -- Avoid scaling giant chat/message panels; preserve chat/input UI even when nested.
+    local lowerName = string.lower(node.Name)
+    if lowerName:find("chat", 1, true) or lowerName:find("message", 1, true)
+        or lowerName:find("textbox", 1, true) or lowerName:find("input", 1, true) then
+        return
+    end
+
+    -- Prefer the smallest shared container that owns sibling controls.
+    -- UIScale is applied to the container rather than each child, so the
+    -- controls remain grouped (e.g. life + speed) instead of drifting apart.
     if groupCandidate then
         applyToGroup(node)
         return
