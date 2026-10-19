@@ -123,10 +123,16 @@ local function isInventoryItem(gui)
     if not gui then return false end
     local function matches(value)
         value = string.lower(tostring(value or ""))
+        -- Preserve inventory items and the contextual action shown while holding them.
         return value:find("velocidade", 1, true) ~= nil
             or value == "cola"
             or value:find("cola_", 1, true) ~= nil
             or value:find("_cola", 1, true) ~= nil
+            or value:find("colocar no chao", 1, true) ~= nil
+            or value:find("colocar no chão", 1, true) ~= nil
+            or value:find("soltar", 1, true) ~= nil
+            or value == "drop"
+            or value:find("dropitem", 1, true) ~= nil
     end
     if matches(gui.Name) then return true end
     if gui:IsA("TextLabel") or gui:IsA("TextButton") or gui:IsA("TextBox") then
@@ -188,7 +194,9 @@ end
 
 local function hasExcludedBranch(node)
     for _, descendant in ipairs(node:GetDescendants()) do
-        if nameIsExcluded(descendant.Name) then return true end
+        if nameIsExcluded(descendant.Name) or isInventoryItem(descendant) then
+            return true
+        end
     end
     return false
 end
