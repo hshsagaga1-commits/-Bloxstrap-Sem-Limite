@@ -67,257 +67,89 @@ end
 
 local scalePatched = [=[
 local funnycon
-local scalerConnections = {}
--- A interface só é examinada quando o usuário ativa o toggle.
-local MIN_SCALE = 0.10
-local activeScale = 1.00
+
+local MIN_SCALE = tonumber(getgenv().BloxstrapMinScale) or 0.01
+if MIN_SCALE < 0 then
+    MIN_SCALE = 0.01
+end
 
 local function nextScale(current)
     current = tonumber(current) or 1
-    if current > 0.80 then return 0.80 end
-    if current > 0.65 then return 0.65 end
-    if current > 0.50 then return 0.50 end
-    if current > 0.35 then return 0.35 end
-    if current > 0.25 then return 0.25 end
-    if current > 0.15 then return 0.15 end
+
+    -- Mantem o comportamento conhecido nas duas primeiras reducoes:
+    -- 1.00 -> 0.75 -> 0.50
+    -- Depois desce mais suave, parecido com o video:
+    -- 0.50 -> 0.40 -> 0.30 -> 0.20 -> 0.10 -> 0.05 -> 0.01
+    if current > 0.75 then
+        return 0.75
+    elseif current > 0.50 then
+        return 0.50
+    elseif current > 0.40 then
+        return 0.40
+    elseif current > 0.30 then
+        return 0.30
+    elseif current > 0.20 then
+        return 0.20
+    elseif current > 0.10 then
+        return 0.10
+    elseif current > 0.05 then
+        return 0.05
+    end
+
     return MIN_SCALE
 end
 
-local function getDirectScale(gui)
-    for _, child in ipairs(gui:GetChildren()) do
-        if child:IsA("UIScale") and child.Name == "__BloxstrapUnlimitedScale" then
-            return child
-        end
-    end
-end
-
-local function nameIsExcluded(name)
-    name = string.lower(name)
-
-    -- Exclude the entire opened emote picker and backpack/inventory panels.
-    -- The separate opener buttons are exempted by isExcluded below.
-    if name:find("emote", 1, true) ~= nil
-        or name:find("backpack", 1, true) ~= nil
-        or name:find("inventory", 1, true) ~= nil
-        or name:find("chat", 1, true) ~= nil
-        or name:find("message", 1, true) ~= nil
-        or name:find("textbox", 1, true) ~= nil
-        or name:find("quickchat", 1, true) ~= nil
-        or name:find("crosshair", 1, true) ~= nil then
-        return true
+local function scalePlayerGui(v)
+    if not v or v.Name == "TouchGui" then
+        return
     end
 
-    return name == "touchgui" or name == "robloxmenu"
-        or name == "channelsbar" or name == "bubblechat"
-end
+    local oldui = v:FindFirstChildWhichIsA("UIScale", true)
 
-local function isBackpackToggle(gui)
-    return gui and gui:IsA("GuiButton")
-        and (string.lower(gui.Name):find("backpack", 1, true) ~= nil
-            or string.lower(gui.Name):find("inventorytoggle", 1, true) ~= nil)
-end
-
-local function isEmoteToggle(gui)
-    if not gui or not gui:IsA("GuiButton") then return false end
-    local name = string.lower(gui.Name)
-    return name:find("emote", 1, true) ~= nil
-        and not name:find("wheel", 1, true)
-        and not name:find("menu", 1, true)
-end
-
-local function isInventoryItem(gui)
-    if not gui then return false end
-    local function matches(value)
-        value = string.lower(tostring(value or ""))
-        value = value:gsub("[%[%]%(%)_%-]", " ")
-        return value:find("velocidade", 1, true) ~= nil
-            or value == "cola"
-            or value:find("cola ", 1, true) ~= nil
-            or value:find("colocar", 1, true) ~= nil
-            or value:find("soltar", 1, true) ~= nil
-            or value == "drop"
-            or value:find("drop ", 1, true) ~= nil
-    end
-    if matches(gui.Name) then return true end
-    if gui:IsA("TextLabel") or gui:IsA("TextButton") or gui:IsA("TextBox") then
-        local ok, value = pcall(function() return gui.Text end)
-        if ok and matches(value) then return true end
-    end
-    return false
-end
-
-local function isBackNavigation(gui)
-    if not gui then return false end
-    local function matches(value)
-        value = string.lower(tostring(value or ""))
-        return value:find("backbutton", 1, true) ~= nil
-            or value:find("back button", 1, true) ~= nil
-            or value == "back" or value == "return" or value == "voltar"
-            or value:find("arrowleft", 1, true) ~= nil
-            or value:find("leftarrow", 1, true) ~= nil
-            or value:find("chevronleft", 1, true) ~= nil
-            or value:find("previous", 1, true) ~= nil
-            or value == "←" or value == "↶" or value == "↩" or value == "❮"
-    end
-    if matches(gui.Name) then return true end
-    if gui:IsA("TextLabel") or gui:IsA("TextButton") or gui:IsA("TextBox") then
-        local ok, value = pcall(function() return gui.Text end)
-        if ok and matches(value) then return true end
-    end
-    return false
-end
-
-local function isExcluded(gui)
-    if not gui then return true end
-
-    -- If this object is inside an emote/backpack panel, exclude it first.
-    -- This prevents the picker contents from shrinking and keeps the opener
-    -- buttons working because those buttons live outside the panel.
-    local current = gui.Parent
-    while current and current ~= lplr.PlayerGui do
-        if nameIsExcluded(current.Name) or isInventoryItem(current) then
-            return true
-        end
-        current = current.Parent
-    end
-
-    if isBackpackToggle(gui) or isEmoteToggle(gui) then
-        return false
-    end
-    return nameIsExcluded(gui.Name) or isInventoryItem(gui) or isBackNavigation(gui)
-end
-
-local function isFullScreenContainer(gui)
-    if not gui:IsA("GuiObject") then return false end
-    local size = gui.Size
-    if size.X.Scale >= 0.90 and size.Y.Scale >= 0.90 then return true end
-    local camera = workspace.CurrentCamera
-    if camera then
-        local viewport = camera.ViewportSize
-        local absolute = gui.AbsoluteSize
-        if viewport.X > 0 and viewport.Y > 0
-            and absolute.X >= viewport.X * 0.90
-            and absolute.Y >= viewport.Y * 0.90 then return true end
-    end
-    return false
-end
-
-local function clearNestedScales(gui)
-    -- Earlier versions scaled image/text descendants separately. Remove those
-    -- old scales when scaling the parent button/group to avoid double scaling.
-    for _, descendant in ipairs(gui:GetDescendants()) do
-        if descendant:IsA("UIScale")
-            and descendant.Name == "__BloxstrapUnlimitedScale" then
-            descendant:Destroy()
-        end
-    end
-end
-
-local function applyToGroup(gui)
-    if not gui:IsA("GuiObject") or isExcluded(gui) then return end
-
-    -- A control/group gets exactly one scaler at its root. This keeps an emote
-    -- button's icon and text at the same scale instead of one tiny/one normal.
-    clearNestedScales(gui)
-
-    local scaler = getDirectScale(gui)
-    if scaler then
-        scaler.Scale = activeScale
+    if oldui then
+        oldui.Scale = nextScale(oldui.Scale)
     else
-        scaler = Instance.new("UIScale")
-        scaler.Name = "__BloxstrapUnlimitedScale"
-        scaler.Scale = activeScale
-        scaler.Parent = gui
+        local uiscale = Instance.new("UIScale")
+        uiscale.Name = "__BloxstrapUnlimitedScale"
+        uiscale.Scale = 0.75
+        uiscale.Parent = v
     end
 end
 
-local function directGuiChildren(node)
-    local result = {}
-    for _, child in ipairs(node:GetChildren()) do
-        if child:IsA("GuiObject") and not isExcluded(child) then
-            table.insert(result, child)
+local function disconnectScaler()
+    pcall(function()
+        if funnycon then
+            funnycon:Disconnect()
+            funnycon = nil
         end
-    end
-    return result
-end
-
-local function hasExcludedBranch(node)
-    -- Se houver um botão contextual protegido dentro do grupo, não escalar o grupo
-    -- inteiro; assim o botão não some e os botões irmãos (ex.: salvar/carregar) continuam escaláveis.
-    for _, descendant in ipairs(node:GetDescendants()) do
-        if (nameIsExcluded(descendant.Name) and not isBackpackToggle(descendant))
-            or isInventoryItem(descendant)
-            or isBackNavigation(descendant) then
-            return true
-        end
-    end
-    return false
-end
-
-local function hasGroupLayout(node)
-    for _, child in ipairs(node:GetChildren()) do
-        if child:IsA("UIListLayout") or child:IsA("UIGridLayout")
-            or child:IsA("UITableLayout") or child:IsA("UIPageLayout") then
-            return true
-        end
-    end
-    return false
-end
-
-local function scaleTree(node)
-    if not node or isExcluded(node) then return end
-
-    if node:IsA("ScreenGui") then
-        for _, child in ipairs(node:GetChildren()) do
-            if child:IsA("GuiObject") and not isExcluded(child) then
-                scaleTree(child)
-            end
-        end
-        return
-    end
-    if not node:IsA("GuiObject") then return end
-
-    local children = directGuiChildren(node)
-
-    -- Restore the grouped version requested: keep sibling controls under one
-    -- scaler. Some groups can shift; user will adjust their positions manually.
-    local compactGroup = #children > 1
-        and not isFullScreenContainer(node)
-        and not hasExcludedBranch(node)
-
-    if compactGroup then
-        applyToGroup(node)
-        return
-    end
-
-    if node:IsA("GuiButton") or #children == 0 then
-        applyToGroup(node)
-        return
-    end
-
-    for _, child in ipairs(children) do
-        scaleTree(child)
-    end
+    end)
 end
 
 local function applyScalePass()
-    -- One synchronous pass only. No DescendantAdded/ChildAdded/respawn watchers.
-    for _, gui in ipairs(lplr.PlayerGui:GetChildren()) do
-        if gui:IsA("ScreenGui") and not isExcluded(gui) then
-            scaleTree(gui)
-        end
+    for _, v in ipairs(lplr.PlayerGui:GetChildren()) do
+        scalePlayerGui(v)
     end
 end
 
 local guiscale = Appearance:AddToggle({
     Name = "GUIScaler",
-    Description = "Reduz a interface apenas quando você ativa o toggle",
+    Description = "1.00 -> 0.75 -> 0.50 -> 0.40 -> 0.30 -> 0.20 -> 0.10...",
     Default = Bloxstrap.Config.GUIScale,
     Callback = function(call)
         Bloxstrap.UpdateConfig("GUIScale", call)
+
         if call then
-            activeScale = nextScale(activeScale)
+            disconnectScaler()
             applyScalePass()
+
+            funnycon = lplr.PlayerGui.ChildAdded:Connect(function(v)
+                task.defer(function()
+                    scalePlayerGui(v)
+                end)
+            end)
+        else
+            -- Nao restaura: ligar de novo aplica o proximo passo.
+            disconnectScaler()
         end
     end
 })
@@ -346,9 +178,12 @@ local crosshairRoot
 local crosshairImage
 local fallbackDot
 
--- Parent to PlayerGui so the crosshair uses the same screen coordinates
--- as the active camera, avoiding offsets caused by executor/CoreGui insets.
-local guiParent = lplr:WaitForChild("PlayerGui")
+local guiParent = game:GetService("CoreGui")
+pcall(function()
+    if gethui then
+        guiParent = gethui()
+    end
+end)
 
 pcall(function()
     local old = guiParent:FindFirstChild("BloxstrapCrosshair")
@@ -379,9 +214,7 @@ local function ensureCrosshair()
     crosshairRoot = Instance.new("Frame")
     crosshairRoot.Name = "CrosshairRoot"
     crosshairRoot.AnchorPoint = Vector2.new(0.5, 0.5)
-    local camera = workspace.CurrentCamera
-    local viewport = camera and camera.ViewportSize or Vector2.new(0, 0)
-    crosshairRoot.Position = UDim2.fromOffset(viewport.X * 0.5, viewport.Y * 0.5)
+    crosshairRoot.Position = UDim2.new(0.5, 0, 0.5, 0)
     crosshairRoot.Size = UDim2.new(0, 8, 0, 8)
     crosshairRoot.BackgroundTransparency = 1
     crosshairRoot.ZIndex = 100
@@ -410,13 +243,6 @@ end
 
 local function refreshCrosshairVisual()
     ensureCrosshair()
-
-    -- Recenter from the actual camera viewport (not the executor's UI root).
-    local camera = workspace.CurrentCamera
-    if camera then
-        local viewport = camera.ViewportSize
-        crosshairRoot.Position = UDim2.fromOffset(viewport.X * 0.5, viewport.Y * 0.5)
-    end
 
     local hasImage = type(chosenimage) == "string" and chosenimage ~= ""
     crosshairImage.Image = hasImage and chosenimage or ""
