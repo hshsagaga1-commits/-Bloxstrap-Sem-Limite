@@ -99,21 +99,82 @@ local function nextScale(current)
     return MIN_SCALE
 end
 
-local function scalePlayerGui(v)
-    if not v or v.Name == "TouchGui" then
+-- Protect only the actual movement/jump controls, not all of TouchGui.
+local protectedTouchNames = {
+    PCJoystick = true,
+    PCJump = true,
+    DynamicThumbstickFrame = true,
+    ThumbstickFrame = true,
+    TouchThumbstick = true,
+    JumpButton = true,
+    TouchJump = true,
+}
+
+local function isProtectedTouchControl(node)
+    return node and protectedTouchNames[node.Name] == true
+end
+
+local function containsProtectedTouchControl(node)
+    for _, descendant in ipairs(node:GetDescendants()) do
+        if isProtectedTouchControl(descendant) then
+            return true
+        end
+    end
+    return false
+end
+
+local function applyScaleToObject(node)
+    if not node or isProtectedTouchControl(node) then
         return
     end
 
-    local oldui = v:FindFirstChildWhichIsA("UIScale", true)
-
+    local oldui = node:FindFirstChildWhichIsA("UIScale", true)
     if oldui then
         oldui.Scale = nextScale(oldui.Scale)
     else
         local uiscale = Instance.new("UIScale")
         uiscale.Name = "__BloxstrapUnlimitedScale"
         uiscale.Scale = 0.75
-        uiscale.Parent = v
+        uiscale.Parent = node
     end
+end
+
+local function scaleTouchGuiNode(node)
+    if isProtectedTouchControl(node) then
+        return
+    end
+
+    -- Never scale a container that owns the joystick/jump button.
+    -- Walk through it and scale only the other sibling controls.
+    if containsProtectedTouchControl(node) then
+        for _, child in ipairs(node:GetChildren()) do
+            scaleTouchGuiNode(child)
+        end
+        return
+    end
+
+    if node:IsA("GuiObject") then
+        applyScaleToObject(node)
+    else
+        for _, child in ipairs(node:GetChildren()) do
+            scaleTouchGuiNode(child)
+        end
+    end
+end
+
+local function scalePlayerGui(v)
+    if not v then
+        return
+    end
+
+    if v.Name == "TouchGui" then
+        for _, child in ipairs(v:GetChildren()) do
+            scaleTouchGuiNode(child)
+        end
+        return
+    end
+
+    applyScaleToObject(v)
 end
 
 local function disconnectScaler()
