@@ -174,6 +174,20 @@ local function scalePlayerGui(v)
         return
     end
 
+    -- PC Movement replaces Roblox's immutable native touch controls with
+    -- custom controls inside this ScreenGui. Never attach UIScale to this
+    -- parent: that would shrink BOTH PCJoystick and PCJump together.
+    -- Keep this overlay at its own authored size; GUIScaler can scale other GUIs.
+    local hasCustomMovementControls = false
+    pcall(function()
+        hasCustomMovementControls =
+            v:FindFirstChild("PCJoystick", true) ~= nil
+            or v:FindFirstChild("PCJump", true) ~= nil
+    end)
+    if v.Name == "PCKeyboardTouchBridgeV52Overlay" or hasCustomMovementControls then
+        return
+    end
+
     applyScaleToObject(v)
 end
 
