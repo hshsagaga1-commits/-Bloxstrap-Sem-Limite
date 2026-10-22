@@ -80,17 +80,22 @@ end
 
 -- Protect only the actual movement/jump controls, not all of TouchGui.
 local protectedTouchNames = {
-    PCJoystick = true,
-    PCJump = true,
-    DynamicThumbstickFrame = true,
-    ThumbstickFrame = true,
-    TouchThumbstick = true,
-    JumpButton = true,
-    TouchJump = true,
+    pcjoystick = true,
+    pcjump = true,
+    dynamicthumbstickframe = true,
+    thumbstickframe = true,
+    touchthumbstick = true,
+    jumpbutton = true,
+    touchjump = true,
+
+    -- Controles usados pelo script separado do Evade Legacy:
+    -- protege estes botoes do GUIScaler sem executar nem alterar aquele script.
+    ["emote button"] = true,
+    ["auto crouch"] = true,
 }
 
 local function isProtectedTouchControl(node)
-    return node and protectedTouchNames[node.Name] == true
+    return node and protectedTouchNames[string.lower(node.Name)] == true
 end
 
 local function containsProtectedTouchControl(node)
