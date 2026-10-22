@@ -365,6 +365,106 @@ task.defer(function()
 end)
 ]], 1)
 
+-- Patch 3: Display FPS compacto, com fundo preto totalmente opaco.
+-- O overlay nativo do FFlag nao permite configurar escala nem fundo; substituimos
+-- somente o toggle Display FPS por um painel compacto com FPS e ping.
+local displayFPSStart = "EngineSettings:AddToggle({\\n    Name = 'Display FPS',\\n    Default = Bloxstrap.Config.DisplayFPS,\\n    Callback = function(call)\\n        Bloxstrap.UpdateConfig('DisplayFPS', call)\\n        Bloxstrap.ToggleFFlag('FFlagDebugDisplayFPS', call);\\n    end\\n})"
+local displayFPSReplacement = [=[
+local compactStatsGui
+local compactStatsConnection
+
+local function stopCompactStats()
+    if compactStatsConnection then
+        compactStatsConnection:Disconnect()
+        compactStatsConnection = nil
+    end
+    if compactStatsGui then
+        pcall(function() compactStatsGui:Destroy() end)
+        compactStatsGui = nil
+    end
+end
+
+local function startCompactStats()
+    stopCompactStats()
+    Bloxstrap.ToggleFFlag('FFlagDebugDisplayFPS', false)
+
+    local parent = game:GetService("CoreGui")
+    pcall(function()
+        if gethui then parent = gethui() end
+    end)
+
+    compactStatsGui = Instance.new("ScreenGui")
+    compactStatsGui.Name = "BloxstrapCompactDisplayFPS"
+    compactStatsGui.ResetOnSpawn = false
+    compactStatsGui.IgnoreGuiInset = true
+    compactStatsGui.DisplayOrder = 999998
+    compactStatsGui.Parent = parent
+
+    local panel = Instance.new("Frame")
+    panel.Name = "StatsPanel"
+    panel.Position = UDim2.new(0, 8, 0, 8)
+    panel.Size = UDim2.new(0, 112, 0, 34)
+    panel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    panel.BackgroundTransparency = 0
+    panel.BorderSizePixel = 0
+    panel.Parent = compactStatsGui
+
+    local label = Instance.new("TextLabel")
+    label.Name = "StatsText"
+    label.BackgroundTransparency = 1
+    label.Position = UDim2.new(0, 5, 0, 0)
+    label.Size = UDim2.new(1, -10, 1, 0)
+    label.Font = Enum.Font.Code
+    label.TextSize = 12
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextYAlignment = Enum.TextYAlignment.Center
+    label.Text = "FPS: -- | Ping: --"
+    label.Parent = panel
+
+    local RunService = game:GetService("RunService")
+    local Stats = game:GetService("Stats")
+    local elapsed, frames = 0, 0
+
+    compactStatsConnection = RunService.RenderStepped:Connect(function(dt)
+        elapsed += dt
+        frames += 1
+        if elapsed >= 0.5 then
+            local fps = math.floor(frames / elapsed + 0.5)
+            elapsed, frames = 0, 0
+            local ping = "--"
+            pcall(function()
+                local item = Stats.Network.ServerStatsItem:FindFirstChild("Data Ping")
+                if item then ping = item:GetValueString():gsub(" ms", "") end
+            end)
+            if label and label.Parent then
+                label.Text = "FPS: " .. fps .. " | Ping: " .. ping .. " ms"
+            end
+        end
+    end)
+end
+
+EngineSettings:AddToggle({
+    Name = 'Display FPS',
+    Default = Bloxstrap.Config.DisplayFPS,
+    Callback = function(call)
+        Bloxstrap.UpdateConfig('DisplayFPS', call)
+        if call then
+            startCompactStats()
+        else
+            stopCompactStats()
+            Bloxstrap.ToggleFFlag('FFlagDebugDisplayFPS', false)
+        end
+    end
+})
+]=]
+
+local displayFPSCount
+source, displayFPSCount = string.gsub(source, displayFPSStart, displayFPSReplacement, 1)
+if displayFPSCount ~= 1 then
+    error("Display FPS block not found; no replacement applied.")
+end
+
 local chunk, err = loadstring(
     source,
     "Bloxstrap Smooth GUI Scale + Tiny Dot Crosshair"
