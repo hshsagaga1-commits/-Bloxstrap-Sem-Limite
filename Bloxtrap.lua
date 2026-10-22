@@ -354,6 +354,20 @@ source = string.sub(source, 1, crossStartPos - 1)
     .. crossPatched
     .. string.sub(source, crossEndPos)
 
+-- Preset de inicializacao: escala -4 niveis e crosshair ligado.
+source = string.gsub(source, "Bloxstrap.canUpdate = true", [[Bloxstrap.canUpdate = true
+task.defer(function()
+    pcall(function()
+        guiscale:Toggle(false)
+        guiscale:Toggle(true)
+    end)
+    pcall(function()
+        crosshair:Toggle(false)
+        crosshair:Toggle(true)
+    end)
+end)
+]], 1)
+
 local chunk, err = loadstring(
     source,
     "Bloxstrap Smooth GUI Scale + Tiny Dot Crosshair"
