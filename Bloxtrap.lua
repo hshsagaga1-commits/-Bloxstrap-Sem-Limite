@@ -68,10 +68,9 @@ end
 local scalePatched = [=[
 local funnycon
 
-local MIN_SCALE = tonumber(getgenv().BloxstrapMinScale) or 0.01
-if MIN_SCALE < 0 then
-    MIN_SCALE = 0.01
-end
+-- O nivel final continua configuravel, mas nunca deixa a interface praticamente invisivel.
+local MIN_SCALE = tonumber(getgenv().BloxstrapMinScale) or 0.05
+MIN_SCALE = math.clamp(MIN_SCALE, 0.05, 1)
 
 local function nextScale(current)
     -- Comeca diretamente no ultimo nivel de reducao, sem exigir
@@ -203,7 +202,6 @@ local guiscale = Appearance:AddToggle({
                 end)
             end)
         else
-            -- Nao restaura: ligar de novo aplica o proximo passo.
             disconnectScaler()
         end
     end
