@@ -96,7 +96,6 @@ local protectedTouchNames = {
     pcjoystick = true, pcjump = true,
     dynamicthumbstickframe = true, thumbstickframe = true,
     touchthumbstick = true, jumpbutton = true, touchjump = true,
-    ["emote button"] = true, ["auto crouch"] = true,
 }
 
 local function isProtectedTouchControl(node)
