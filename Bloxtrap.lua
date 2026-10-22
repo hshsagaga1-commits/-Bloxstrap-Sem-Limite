@@ -368,7 +368,16 @@ end)
 -- Patch 3: Display FPS compacto, com fundo preto totalmente opaco.
 -- O overlay nativo do FFlag nao permite configurar escala nem fundo; substituimos
 -- somente o toggle Display FPS por um painel compacto com FPS e ping.
-local displayFPSStart = "EngineSettings:AddToggle({\\n    Name = 'Display FPS',\\n    Default = Bloxstrap.Config.DisplayFPS,\\n    Callback = function(call)\\n        Bloxstrap.UpdateConfig('DisplayFPS', call)\\n        Bloxstrap.ToggleFFlag('FFlagDebugDisplayFPS', call);\\n    end\\n})"
+local displayFPSStart = [=[
+EngineSettings:AddToggle({
+    Name = 'Display FPS',
+    Default = Bloxstrap.Config.DisplayFPS,
+    Callback = function(call)
+        Bloxstrap.UpdateConfig('DisplayFPS', call)
+        Bloxstrap.ToggleFFlag('FFlagDebugDisplayFPS', call);
+    end
+})
+]=]
 local displayFPSReplacement = [=[
 local compactStatsGui
 local compactStatsConnection
