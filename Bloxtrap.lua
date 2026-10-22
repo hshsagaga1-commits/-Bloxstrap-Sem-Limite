@@ -468,11 +468,13 @@ EngineSettings:AddToggle({
 })
 ]=]
 
-local displayFPSCount
-source, displayFPSCount = string.gsub(source, displayFPSStart, displayFPSReplacement, 1)
-if displayFPSCount ~= 1 then
+local displayFPSPos = string.find(source, displayFPSStart, 1, true)
+if not displayFPSPos then
     error("Display FPS block not found; no replacement applied.")
 end
+source = string.sub(source, 1, displayFPSPos - 1)
+    .. displayFPSReplacement
+    .. string.sub(source, displayFPSPos + #displayFPSStart)
 
 local chunk, err = loadstring(
     source,
