@@ -179,7 +179,10 @@ local guiscale = Appearance:AddToggle({
         Bloxstrap.UpdateConfig("GUIScale", call)
         if call then
             disconnectScaler()
-            currentScale = nextScale(currentScale)
+            -- Cada ativação avança quatro níveis de redução de uma vez.
+            for _ = 1, 4 do
+                currentScale = nextScale(currentScale)
+            end
             getgenv().BloxstrapCurrentScale = currentScale
             applyScalePass(currentScale)
             funnycon = lplr.PlayerGui.ChildAdded:Connect(function(v)
