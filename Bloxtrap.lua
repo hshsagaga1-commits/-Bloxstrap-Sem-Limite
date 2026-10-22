@@ -74,28 +74,8 @@ if MIN_SCALE < 0 then
 end
 
 local function nextScale(current)
-    current = tonumber(current) or 1
-
-    -- Mantem o comportamento conhecido nas duas primeiras reducoes:
-    -- 1.00 -> 0.75 -> 0.50
-    -- Depois desce mais suave, parecido com o video:
-    -- 0.50 -> 0.40 -> 0.30 -> 0.20 -> 0.10 -> 0.05 -> 0.01
-    if current > 0.75 then
-        return 0.75
-    elseif current > 0.50 then
-        return 0.50
-    elseif current > 0.40 then
-        return 0.40
-    elseif current > 0.30 then
-        return 0.30
-    elseif current > 0.20 then
-        return 0.20
-    elseif current > 0.10 then
-        return 0.10
-    elseif current > 0.05 then
-        return 0.05
-    end
-
+    -- Comeca diretamente no ultimo nivel de reducao, sem exigir
+    -- varias ativacoes consecutivas do GUIScaler.
     return MIN_SCALE
 end
 
@@ -134,7 +114,7 @@ local function applyScaleToObject(node)
     else
         local uiscale = Instance.new("UIScale")
         uiscale.Name = "__BloxstrapUnlimitedScale"
-        uiscale.Scale = 0.75
+        uiscale.Scale = MIN_SCALE
         uiscale.Parent = node
     end
 end
@@ -208,7 +188,7 @@ end
 
 local guiscale = Appearance:AddToggle({
     Name = "GUIScaler",
-    Description = "1.00 -> 0.75 -> 0.50 -> 0.40 -> 0.30 -> 0.20 -> 0.10...",
+    Description = "Aplica diretamente a reducao final da UI.",
     Default = Bloxstrap.Config.GUIScale,
     Callback = function(call)
         Bloxstrap.UpdateConfig("GUIScale", call)
