@@ -68,30 +68,35 @@ end
 local scalePatched = [=[
 local funnycon
 
--- O nivel final continua configuravel, mas nunca deixa a interface praticamente invisivel.
-local MIN_SCALE = tonumber(getgenv().BloxstrapMinScale) or 0.05
-MIN_SCALE = math.clamp(MIN_SCALE, 0.05, 1)
+-- Mantem o nivel escolhido durante recriacoes de UI/mapa.
+-- Escala final configuravel: padrao 0.01, mas a UI nova recebe o nivel atual,
+-- nao volta para 0.75 nem reinicia a sequencia.
+local MIN_SCALE = tonumber(getgenv().BloxstrapMinScale) or 0.01
+MIN_SCALE = math.clamp(MIN_SCALE, 0.01, 1)
+
+local scaleLevels = {1, 0.75, 0.50, 0.40, 0.30, 0.20, 0.10, 0.05, MIN_SCALE}
+local currentScale = tonumber(getgenv().BloxstrapCurrentScale) or 1
+currentScale = math.clamp(currentScale, MIN_SCALE, 1)
 
 local function nextScale(current)
-    -- Comeca diretamente no ultimo nivel de reducao, sem exigir
-    -- varias ativacoes consecutivas do GUIScaler.
-    return MIN_SCALE
+    local nearestIndex = 1
+    local nearestDistance = math.huge
+    for i, level in ipairs(scaleLevels) do
+        local distance = math.abs(level - current)
+        if distance < nearestDistance then
+            nearestDistance = distance
+            nearestIndex = i
+        end
+    end
+    local nextIndex = math.min(nearestIndex + 1, #scaleLevels)
+    return scaleLevels[nextIndex]
 end
 
--- Protect only the actual movement/jump controls, not all of TouchGui.
 local protectedTouchNames = {
-    pcjoystick = true,
-    pcjump = true,
-    dynamicthumbstickframe = true,
-    thumbstickframe = true,
-    touchthumbstick = true,
-    jumpbutton = true,
-    touchjump = true,
-
-    -- Controles usados pelo script separado do Evade Legacy:
-    -- protege estes botoes do GUIScaler sem executar nem alterar aquele script.
-    ["emote button"] = true,
-    ["auto crouch"] = true,
+    pcjoystick = true, pcjump = true,
+    dynamicthumbstickframe = true, thumbstickframe = true,
+    touchthumbstick = true, jumpbutton = true, touchjump = true,
+    ["emote button"] = true, ["auto crouch"] = true,
 }
 
 local function isProtectedTouchControl(node)
@@ -100,68 +105,49 @@ end
 
 local function containsProtectedTouchControl(node)
     for _, descendant in ipairs(node:GetDescendants()) do
-        if isProtectedTouchControl(descendant) then
-            return true
-        end
+        if isProtectedTouchControl(descendant) then return true end
     end
     return false
 end
 
-local function applyScaleToObject(node)
-    if not node or isProtectedTouchControl(node) then
-        return
-    end
-
+local function applyScaleToObject(node, scale)
+    if not node or isProtectedTouchControl(node) then return end
     local oldui = node:FindFirstChildWhichIsA("UIScale", true)
     if oldui then
-        oldui.Scale = nextScale(oldui.Scale)
+        oldui.Scale = scale
     else
         local uiscale = Instance.new("UIScale")
         uiscale.Name = "__BloxstrapUnlimitedScale"
-        uiscale.Scale = MIN_SCALE
+        uiscale.Scale = scale
         uiscale.Parent = node
     end
 end
 
-local function scaleTouchGuiNode(node)
-    if isProtectedTouchControl(node) then
-        return
-    end
-
-    -- Never scale a container that owns the joystick/jump button.
-    -- Walk through it and scale only the other sibling controls.
+local function scaleTouchGuiNode(node, scale)
+    if isProtectedTouchControl(node) then return end
     if containsProtectedTouchControl(node) then
         for _, child in ipairs(node:GetChildren()) do
-            scaleTouchGuiNode(child)
+            scaleTouchGuiNode(child, scale)
         end
         return
     end
-
     if node:IsA("GuiObject") then
-        applyScaleToObject(node)
+        applyScaleToObject(node, scale)
     else
         for _, child in ipairs(node:GetChildren()) do
-            scaleTouchGuiNode(child)
+            scaleTouchGuiNode(child, scale)
         end
     end
 end
 
-local function scalePlayerGui(v)
-    if not v then
-        return
-    end
-
+local function scalePlayerGui(v, scale)
+    if not v then return end
     if v.Name == "TouchGui" then
         for _, child in ipairs(v:GetChildren()) do
-            scaleTouchGuiNode(child)
+            scaleTouchGuiNode(child, scale)
         end
         return
     end
-
-    -- PC Movement replaces Roblox's immutable native touch controls with
-    -- custom controls inside this ScreenGui. Never attach UIScale to this
-    -- parent: that would shrink BOTH PCJoystick and PCJump together.
-    -- Keep this overlay at its own authored size; GUIScaler can scale other GUIs.
     local hasCustomMovementControls = false
     pcall(function()
         hasCustomMovementControls =
@@ -171,39 +157,36 @@ local function scalePlayerGui(v)
     if v.Name == "PCKeyboardTouchBridgeV52Overlay" or hasCustomMovementControls then
         return
     end
-
-    applyScaleToObject(v)
+    applyScaleToObject(v, scale)
 end
 
 local function disconnectScaler()
     pcall(function()
-        if funnycon then
-            funnycon:Disconnect()
-            funnycon = nil
-        end
+        if funnycon then funnycon:Disconnect(); funnycon = nil end
     end)
 end
 
-local function applyScalePass()
+local function applyScalePass(scale)
     for _, v in ipairs(lplr.PlayerGui:GetChildren()) do
-        scalePlayerGui(v)
+        scalePlayerGui(v, scale)
     end
 end
 
 local guiscale = Appearance:AddToggle({
     Name = "GUIScaler",
-    Description = "Aplica diretamente a reducao final da UI.",
+    Description = "Cada ativacao avanca um nivel; UIs recriadas mantem o ultimo nivel escolhido.",
     Default = Bloxstrap.Config.GUIScale,
     Callback = function(call)
         Bloxstrap.UpdateConfig("GUIScale", call)
-
         if call then
             disconnectScaler()
-            applyScalePass()
-
+            currentScale = nextScale(currentScale)
+            getgenv().BloxstrapCurrentScale = currentScale
+            applyScalePass(currentScale)
             funnycon = lplr.PlayerGui.ChildAdded:Connect(function(v)
                 task.defer(function()
-                    scalePlayerGui(v)
+                    -- Reutiliza o ultimo nivel selecionado; nao avanca de novo.
+                    scalePlayerGui(v, currentScale)
                 end)
             end)
         else
