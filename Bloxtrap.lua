@@ -112,15 +112,15 @@ end
 
 local function applyScaleToObject(node, scale)
     if not node or isProtectedTouchControl(node) then return end
-    local oldui = node:FindFirstChildWhichIsA("UIScale", true)
-    if oldui then
-        oldui.Scale = scale
-    else
-        local uiscale = Instance.new("UIScale")
+    -- Nunca altere UIScale de descendentes: isso causa escalas multiplicadas
+    -- em cada inicializacao e faz os botoes desaparecerem.
+    local uiscale = node:FindFirstChild("__BloxstrapUnlimitedScale")
+    if not uiscale or not uiscale:IsA("UIScale") then
+        uiscale = Instance.new("UIScale")
         uiscale.Name = "__BloxstrapUnlimitedScale"
-        uiscale.Scale = scale
         uiscale.Parent = node
     end
+    uiscale.Scale = scale
 end
 
 local function scaleTouchGuiNode(node, scale)
@@ -355,12 +355,11 @@ source = string.sub(source, 1, crossStartPos - 1)
 -- Preset de inicializacao: escala -4 niveis e crosshair ligado.
 source = string.gsub(source, "Bloxstrap.canUpdate = true", [[Bloxstrap.canUpdate = true
 task.defer(function()
+    -- Ativa uma unica vez; nao alterna false/true na inicializacao.
     pcall(function()
-        guiscale:Toggle(false)
         guiscale:Toggle(true)
     end)
     pcall(function()
-        crosshair:Toggle(false)
         crosshair:Toggle(true)
     end)
 end)
