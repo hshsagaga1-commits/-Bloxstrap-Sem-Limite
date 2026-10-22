@@ -75,8 +75,9 @@ local MIN_SCALE = tonumber(getgenv().BloxstrapMinScale) or 0.01
 MIN_SCALE = math.clamp(MIN_SCALE, 0.01, 1)
 
 local scaleLevels = {1, 0.75, 0.50, 0.40, 0.30, 0.20, 0.10, 0.05, MIN_SCALE}
-local currentScale = tonumber(getgenv().BloxstrapCurrentScale) or 1
-currentScale = math.clamp(currentScale, MIN_SCALE, 1)
+-- Preset fixo: quatro passos a partir de 1.0 = 0.30; nao acumula entre execucoes.
+local currentScale = 0.30
+getgenv().BloxstrapCurrentScale = currentScale
 
 local function nextScale(current)
     local nearestIndex = 1
@@ -179,10 +180,7 @@ local guiscale = Appearance:AddToggle({
         Bloxstrap.UpdateConfig("GUIScale", call)
         if call then
             disconnectScaler()
-            -- Cada ativação avança quatro níveis de redução de uma vez.
-            for _ = 1, 4 do
-                currentScale = nextScale(currentScale)
-            end
+            -- Aplica o preset fixo de quatro passos e para; nao avanca novamente.
             getgenv().BloxstrapCurrentScale = currentScale
             applyScalePass(currentScale)
             funnycon = lplr.PlayerGui.ChildAdded:Connect(function(v)
