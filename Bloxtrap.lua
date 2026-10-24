@@ -74,9 +74,9 @@ local funnycon
 local MIN_SCALE = tonumber(getgenv().BloxstrapMinScale) or 0.01
 MIN_SCALE = math.clamp(MIN_SCALE, 0.01, 1)
 
-local scaleLevels = {1, 0.75, 0.50, 0.40, 0.30, 0.20, 0.10, 0.05, MIN_SCALE}
--- Preset fixo: tres passos a partir de 1.0 = 0.40; nao acumula entre execucoes.
-local currentScale = 0.40
+local scaleLevels = {1, 0.75, 0.50, 0.45, 0.30, 0.20, 0.10, 0.05, MIN_SCALE}
+-- Preset fixo: tres passos a partir de 1.0 = 0.45; nao acumula entre execucoes.
+local currentScale = 0.45
 getgenv().BloxstrapCurrentScale = currentScale
 
 local function nextScale(current)
