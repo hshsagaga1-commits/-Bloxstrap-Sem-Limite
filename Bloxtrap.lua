@@ -79,11 +79,10 @@ local active = false
 local pendingScan = false
 local records = setmetatable({}, {__mode = "k"})
 local watching = setmetatable({}, {__mode = "k"})
-local watchedConnections = {}
-local Stats = {resized = 0, skipped = 0, repairs = 0}
+local Stats = {resized = 0, repairs = 0}
 
 local protectedNames = {
-    touchgui=true, touchcontrolframe=true, pcjoystick=true, pcjump=true,
+    pcjoystick=true, pcjump=true,
     dynamicthumbstickframe=true, thumbstickframe=true,
     touchthumbstick=true, jumpbutton=true, touchjump=true,
     jumpcontrol=true, joystick=true, thumbstick=true, jump=true,
@@ -113,7 +112,8 @@ local function isCandidate(node)
     if not node or not node:IsA("GuiObject") then return false end
     if node:IsA("GuiButton") then return true end
     local name = string.lower(node.Name)
-    if (string.find(name, "button", 1, true)
+    if (node:IsA("Frame") or node:IsA("ImageLabel"))
+        and (string.find(name, "button", 1, true)
         or string.find(name, "action", 1, true)
         or string.find(name, "emote", 1, true))
         and not node:FindFirstChildWhichIsA("GuiButton", true) then
@@ -135,6 +135,26 @@ local function isHudSized(node)
     -- Keep menus, full-screen windows, inventory lists and emote panels intact.
     -- Pick individual floating HUD buttons (as MoverBotoes does), not their roots.
     local pos = node.AbsolutePosition
+    -- Menus and popup windows are NOT HUD, even when they reuse button names.
+    local ancestor = node.Parent
+    while ancestor and ancestor ~= lplr.PlayerGui do
+        if ancestor:IsA("GuiObject") then
+            local aname = string.lower(ancestor.Name)
+            local panel = string.find(aname, "panel", 1, true)
+                or string.find(aname, "window", 1, true)
+                or string.find(aname, "popup", 1, true)
+                or string.find(aname, "settings", 1, true)
+                or string.find(aname, "shop", 1, true)
+                or string.find(aname, "inventory", 1, true)
+                or string.find(aname, "mainmenu", 1, true)
+                or string.find(aname, "emotewheel", 1, true)
+            if panel and ancestor.AbsoluteSize.X > viewport.X * 0.48
+                and ancestor.AbsoluteSize.Y > viewport.Y * 0.36 then
+                return false
+            end
+        end
+        ancestor = ancestor.Parent
+    end
     local edge = pos.X < viewport.X * 0.23
         or pos.X + size.X > viewport.X * 0.77
         or pos.Y < viewport.Y * 0.24
