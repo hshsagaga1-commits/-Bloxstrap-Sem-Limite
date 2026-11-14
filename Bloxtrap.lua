@@ -54,7 +54,7 @@ local source = game:HttpGet(
     true
 )
 
--- Patch 1: GUIScaler Evade Overhaul V4: direct button sizing, persistent/reversible.
+-- Patch 1: GUIScaler Evade Overhaul V5: proportional whole-group scaling.
 local scaleStartMarker = "local funnycon\nlocal guisets = {}"
 local scaleEndMarker = "local touchuuval = 1.2"
 
@@ -69,279 +69,403 @@ local scalePatched = [=[
 local funnycon
 local funnyrootcon
 
--- V4: the Evade Overhaul HUD uses buttons INSIDE ScreenGui.
--- Resize the actual GuiObjects, not the ScreenGui container.
--- MoverBotoes V50 demonstrated that button.Size works on the new HUD.
-local MIN_SCALE = math.clamp(tonumber(getgenv().BloxstrapMinScale) or 0.01, 0.01, 1)
-local currentScale = math.clamp(tonumber(getgenv().BloxstrapCurrentScale) or 0.45, MIN_SCALE, 1)
-local TAG = "__BloxstrapUnlimitedScale"
-local active = false
-local pendingScan = false
-local records = setmetatable({}, {__mode = "k"})
-local watching = setmetatable({}, {__mode = "k"})
-local Stats = {resized = 0, repairs = 0}
+-- V5 / Evade Overhaul: whole-group scaling, NOT a separate Size edit per button.
+-- A UIScale on a shared group shrinks buttons, text, icons, strokes and spacing.
+-- For siblings without a shared compact frame, one geometric transform shrinks
+-- their relative positions as a group. Never destroy UIListLayout or reparent.
+local TAG="__BloxstrapUnlimitedGroupScale"
+local MIN_SCALE=math.clamp(tonumber(getgenv().BloxstrapMinScale) or 0.01,0.01,1)
+local currentScale=math.clamp(tonumber(getgenv().BloxstrapCurrentScale) or 0.30,MIN_SCALE,1)
+local active=false
+local pending=false
+local updating=false
+local groups={}
+local signals={}
+local statistics={rebuilds=0,native=0,virtual=0,buttons=0}
 
-local protectedNames = {
-    pcjoystick=true, pcjump=true,
-    dynamicthumbstickframe=true, thumbstickframe=true,
-    touchthumbstick=true, jumpbutton=true, touchjump=true,
-    jumpcontrol=true, joystick=true, thumbstick=true, jump=true,
-    perfectuimanager_ui=true, perfectuimanager_shield=true,
-    pckeyboardtouchbridgev52overlay=true,
+local PROTECT={
+    pcjoystick=true,pcjump=true,dynamicthumbstickframe=true,
+    thumbstickframe=true,touchthumbstick=true,jumpbutton=true,
+    touchjump=true,jumpcontrol=true,joystick=true,thumbstick=true,
+    ["perfectuimanager_ui"]=true,["perfectuimanager_shield"]=true,
+    ["pckeyboardtouchbridgev52overlay"]=true
 }
-local hudTokens = {"hud", "mobile", "control", "hotbar", "action",
-    "emote", "crouch", "sprint", "slide", "dash", "interact", "carry",
-    "equip", "backpack"}
+local HUD_HINTS={"hud","mobile","control","action","button","hotbar",
+    "pov","whistle","apito","crouch","sprint","slide","dash",
+    "interact","carry","equip","backpack"}
+local PANEL_HINTS={"panel","window","popup","settings","shop","inventory",
+    "mainmenu","emotemenu","emotewheel","dialog","modal"}
 
-local function excluded(node)
-    local cursor = node
-    while cursor and cursor ~= lplr.PlayerGui do
-        local name = string.lower(cursor.Name)
-        if protectedNames[name]
-            or string.find(name, "bloxstrap", 1, true)
-            or string.find(name, "delta", 1, true)
-            or string.find(name, "perfectuimanager", 1, true)
-            or string.find(name, "pcmovement", 1, true)
-        then return true end
-        cursor = cursor.Parent
-    end
-    return cursor ~= lplr.PlayerGui
-end
-
-local function isCandidate(node)
-    if not node or not node:IsA("GuiObject") then return false end
-    if node:IsA("GuiButton") then return true end
-    local name = string.lower(node.Name)
-    if (node:IsA("Frame") or node:IsA("ImageLabel"))
-        and (string.find(name, "button", 1, true)
-        or string.find(name, "action", 1, true)
-        or string.find(name, "emote", 1, true))
-        and not node:FindFirstChildWhichIsA("GuiButton", true) then
-        return true
+local function includesAny(name,tokens)
+    for _,token in ipairs(tokens) do
+        if string.find(name,token,1,true) then return true end
     end
     return false
 end
 
-local function isHudSized(node)
-    if excluded(node) or not node.Visible then return false end
-    local camera = workspace.CurrentCamera
-    local viewport = camera and camera.ViewportSize or Vector2.new(800, 450)
-    local size = node.AbsoluteSize
-    if size.X < 5 or size.Y < 5 or viewport.X < 50 or viewport.Y < 50
-        or size.X > viewport.X * 0.34 or size.Y > viewport.Y * 0.36 then
+local function excluded(node)
+    local cursor=node
+    while cursor and cursor~=lplr.PlayerGui do
+        local name=string.lower(cursor.Name)
+        if PROTECT[name] or includesAny(name,{"bloxstrap","delta",
+            "perfectuimanager","pcmovement","executor","scriptui"}) then
+            return true
+        end
+        cursor=cursor.Parent
+    end
+    return cursor~=lplr.PlayerGui
+end
+
+local function eligible(node)
+    if not node or not node:IsA("GuiObject") or excluded(node) then
         return false
     end
-
-    -- Keep menus, full-screen windows, inventory lists and emote panels intact.
-    -- Pick individual floating HUD buttons (as MoverBotoes does), not their roots.
-    local pos = node.AbsolutePosition
-    -- Menus and popup windows are NOT HUD, even when they reuse button names.
-    local ancestor = node.Parent
-    while ancestor and ancestor ~= lplr.PlayerGui do
+    if not node.Visible then return false end
+    if not node:IsA("GuiButton") then
+        if not (node:IsA("Frame") or node:IsA("ImageLabel")) then return false end
+        local lower=string.lower(node.Name)
+        if not includesAny(lower,{"button","action","pov","whistle","apito"})
+            or node:FindFirstChildWhichIsA("GuiButton",true) then
+            return false
+        end
+    end
+    local viewport=workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+        or Vector2.new(812,375)
+    local size=node.AbsoluteSize
+    if size.X<5 or size.Y<5 or size.X>viewport.X*.34
+        or size.Y>viewport.Y*.36 then return false end
+    local pos=node.AbsolutePosition
+    local atEdge=pos.X<viewport.X*.24 or pos.X+size.X>viewport.X*.76
+        or pos.Y<viewport.Y*.24 or pos.Y+size.Y>viewport.Y*.76
+    local hint=false
+    local ancestor=node
+    while ancestor and ancestor~=lplr.PlayerGui do
+        local name=string.lower(ancestor.Name)
+        if includesAny(name,HUD_HINTS) then hint=true end
         if ancestor:IsA("GuiObject") then
-            local aname = string.lower(ancestor.Name)
-            local panel = string.find(aname, "panel", 1, true)
-                or string.find(aname, "window", 1, true)
-                or string.find(aname, "popup", 1, true)
-                or string.find(aname, "settings", 1, true)
-                or string.find(aname, "shop", 1, true)
-                or string.find(aname, "inventory", 1, true)
-                or string.find(aname, "mainmenu", 1, true)
-                or string.find(aname, "emotewheel", 1, true)
-            if panel and ancestor.AbsoluteSize.X > viewport.X * 0.48
-                and ancestor.AbsoluteSize.Y > viewport.Y * 0.36 then
-                return false
+            local s=ancestor.AbsoluteSize
+            if includesAny(name,PANEL_HINTS) and s.X>viewport.X*.48
+                and s.Y>viewport.Y*.36 then return false end
+        end
+        ancestor=ancestor.Parent
+    end
+    return atEdge or hint
+end
+
+local function boundsOf(objects)
+    local minX,minY,maxX,maxY=math.huge,math.huge,-math.huge,-math.huge
+    for _,node in ipairs(objects) do
+        local p,s=node.AbsolutePosition,node.AbsoluteSize
+        minX=math.min(minX,p.X);minY=math.min(minY,p.Y)
+        maxX=math.max(maxX,p.X+s.X);maxY=math.max(maxY,p.Y+s.Y)
+    end
+    return minX,minY,maxX,maxY
+end
+
+local function sharedScreen(node)
+    local current=node
+    while current and current~=lplr.PlayerGui do
+        if current:IsA("ScreenGui") then return current end
+        current=current.Parent
+    end
+    return nil
+end
+
+local function containsProtected(node)
+    for _,child in ipairs(node:GetDescendants()) do
+        if PROTECT[string.lower(child.Name)] then return true end
+    end
+    return false
+end
+
+local function compactRoot(root,members,viewport)
+    if not root:IsA("GuiObject") or root:IsA("GuiButton")
+        or root:IsA("ScrollingFrame") or containsProtected(root) then return false end
+    if #members<2 or #members>8 then return false end
+    local s=root.AbsoluteSize
+    if s.X<8 or s.Y<8 or s.X>viewport.X*.50 or s.Y>viewport.Y*.52
+        then return false end
+    local x1,y1,x2,y2=boundsOf(members)
+    if x2-x1>viewport.X*.47 or y2-y1>viewport.Y*.47 then return false end
+    -- Reject screen-wide transparent wrappers and unrelated controls.
+    if s.X>(x2-x1)+100 or s.Y>(y2-y1)+85 then return false end
+    return true
+end
+
+local function collectButtons()
+    local out={}
+    for _,node in ipairs(lplr.PlayerGui:GetDescendants()) do
+        if eligible(node) then out[#out+1]=node end
+    end
+    -- A wrapper and the button inside it must be one logical control.
+    local filtered={}
+    for _,node in ipairs(out) do
+        local ancestor=node.Parent
+        local insideAnother=false
+        while ancestor and ancestor~=lplr.PlayerGui do
+            if table.find(out,ancestor) then insideAnother=true break end
+            ancestor=ancestor.Parent
+        end
+        if not insideAnother then filtered[#filtered+1]=node end
+    end
+    return filtered
+end
+
+local function makeScale(node)
+    if not node or not node.Parent then return nil end
+    local scaler=node:FindFirstChild(TAG)
+    if not scaler or not scaler:IsA("UIScale") then
+        scaler=Instance.new("UIScale")
+        scaler.Name=TAG
+        scaler.Scale=1
+        scaler.Parent=node
+    end
+    return scaler
+end
+
+local function listen(connection)
+    signals[#signals+1]=connection
+end
+
+local function clearGroups()
+    updating=true
+    for _,group in ipairs(groups) do
+        for _,item in ipairs(group.items) do
+            local node=item.node
+            if node and node.Parent then
+                -- Respect manual MoverBotoes positioning after this scaler.
+                if item.shifted and node.Position==item.shifted then
+                    node.Position=item.originalPosition
+                end
+                local scaler=node:FindFirstChild(TAG)
+                if scaler and scaler:IsA("UIScale") then scaler:Destroy() end
             end
         end
-        ancestor = ancestor.Parent
     end
-    local edge = pos.X < viewport.X * 0.23
-        or pos.X + size.X > viewport.X * 0.77
-        or pos.Y < viewport.Y * 0.24
-        or pos.Y + size.Y > viewport.Y * 0.76
-    local hint = false
-    local parent = node
-    while parent and parent ~= lplr.PlayerGui do
-        local name = string.lower(parent.Name)
-        for _, token in ipairs(hudTokens) do
-            if string.find(name, token, 1, true) then
-                hint = true
-                break
-            end
-        end
-        if hint then break end
-        parent = parent.Parent
-    end
-    return edge or hint
+    table.clear(groups)
+    updating=false
 end
 
-local function scaledSize(original, factor)
-    return UDim2.new(original.X.Scale * factor, original.X.Offset * factor,
-        original.Y.Scale * factor, original.Y.Offset * factor)
-end
-
-local function restoreOne(node, rec)
-    if not node.Parent then return end
-    rec.busy = true
-    if rec.method == "size" then
-        -- Respect a custom size that MoverBotoes may have set afterward.
-        if node.Size == rec.applied then node.Size = rec.original end
-    elseif rec.method == "uiscale" and rec.scaler and rec.scaler.Parent then
-        rec.scaler:Destroy()
-    end
-    rec.busy = false
-end
-
-local function restoreAll()
-    for node, rec in pairs(records) do
-        pcall(restoreOne, node, rec)
-    end
-    for node, list in pairs(watching) do
-        for _, connection in ipairs(list) do
-            pcall(function() connection:Disconnect() end)
-        end
-        watching[node] = nil
-    end
-    records = setmetatable({}, {__mode = "k"})
-end
-
-local function applyOne(node)
-    if not active or not isCandidate(node) or not isHudSized(node) then
-        return
-    end
-    local rec = records[node]
-    if not rec then
-        local native = node.Size
-        -- The real button may be laid out visually before Size is assigned.
-        if native == UDim2.new(0, 0, 0, 0) then
-            native = UDim2.fromOffset(node.AbsoluteSize.X, node.AbsoluteSize.Y)
-        end
-        rec = {original=native, method="size", applied=nil, busy=false}
-        local parent = node.Parent
-        local layout = parent and parent:FindFirstChildWhichIsA("UIGridStyleLayout")
-        if layout then
-            -- GridLayout owns Size. Scale only THIS button, never the full grid.
-            rec.method = "uiscale"
-        end
-        records[node] = rec
-        Stats.resized += 1
-    end
-    if rec.busy then return end
-    rec.busy = true
-    if rec.method == "size" then
-        local requested = scaledSize(rec.original, currentScale)
-        -- Do not overwrite manual resizing by MoverBotoes.
-        if rec.applied == nil or node.Size == rec.applied or node.Size == rec.original then
-            node.Size = requested
-            rec.applied = requested
-        end
-    else
-        if not rec.scaler or not rec.scaler.Parent then
-            rec.scaler = Instance.new("UIScale")
-            rec.scaler.Name = TAG
-            rec.scaler.Parent = node
-        end
-        rec.scaler.Scale = currentScale
-    end
-    rec.busy = false
-end
-
-local function observe(node)
-    if not isCandidate(node) or watching[node] or excluded(node) then return end
-    local listeners = {}
-    watching[node] = listeners
-    listeners[#listeners+1] = node:GetPropertyChangedSignal("Visible"):Connect(function()
-        if active and node.Visible then task.defer(applyOne, node) end
-    end)
-    listeners[#listeners+1] = node:GetPropertyChangedSignal("Size"):Connect(function()
-        if not active then return end
-        local rec = records[node]
-        if rec and not rec.busy and rec.method == "size" and node.Size == rec.original then
-            -- The game reset an existing control after a round; reapply once.
-            Stats.repairs += 1
-            task.defer(function()
-                if active and node.Parent and node.Size == rec.original then applyOne(node) end
-            end)
-        elseif not rec then
-            task.defer(applyOne, node)
-        end
-    end)
-    applyOne(node)
-end
-
-local function scanPlayerGui()
+local function applyGroup(group)
     if not active then return end
-    for _, node in ipairs(lplr.PlayerGui:GetDescendants()) do
-        if isCandidate(node) then observe(node) end
+    updating=true
+    for _,item in ipairs(group.items) do
+        local node=item.node
+        if node and node.Parent then
+            if item.kind=="shared" then
+                local scale=makeScale(node)
+                if scale then scale.Scale=currentScale end
+            else
+                local scale=makeScale(node)
+                if scale then scale.Scale=currentScale end
+                -- Transform the root anchors about ONE shared pivot, preserving
+                -- the original group shape, order and relative gaps.
+                local dx=(item.anchorX-group.pivotX)*(currentScale-1)
+                local dy=(item.anchorY-group.pivotY)*(currentScale-1)
+                local orig=item.originalPosition
+                local target=UDim2.new(orig.X.Scale,orig.X.Offset+dx,
+                    orig.Y.Scale,orig.Y.Offset+dy)
+                local layout=node.Parent and (node.Parent:FindFirstChildWhichIsA("UIListLayout")
+                    or node.Parent:FindFirstChildWhichIsA("UIGridStyleLayout")
+                    or node.Parent:FindFirstChildWhichIsA("UITableLayout"))
+                if not layout then
+                    -- SetScale does not accumulate, always compute from original.
+                    if not item.shifted or node.Position==item.shifted
+                        or node.Position==item.originalPosition then
+                        node.Position=target
+                        item.shifted=target
+                    end
+                end
+            end
+        end
     end
+    updating=false
 end
 
-local function scheduleScan()
-    if not active or pendingScan then return end
-    pendingScan = true
-    task.delay(0.16, function()
-        pendingScan = false
-        if active then scanPlayerGui() end
+local function newShared(root,members)
+    return {name=root.Name,kind="shared",
+        items={{node=root,kind="shared"}},buttons=#members,
+        pivotX=0,pivotY=0}
+end
+
+local function newVirtual(members)
+    local x1,y1,x2,y2=boundsOf(members)
+    local group={name="cluster",kind="virtual",items={},buttons=#members,
+        pivotX=(x1+x2)*.5,pivotY=(y1+y2)*.5}
+    for _,node in ipairs(members) do
+        local p,s=node.AbsolutePosition,node.AbsoluteSize
+        group.items[#group.items+1]={
+            node=node,kind="virtual",originalPosition=node.Position,
+            anchorX=p.X+s.X*node.AnchorPoint.X,
+            anchorY=p.Y+s.Y*node.AnchorPoint.Y
+        }
+    end
+    return group
+end
+
+local function near(a,b,viewport)
+    if sharedScreen(a)~=sharedScreen(b) then return false end
+    local p1,s1=a.AbsolutePosition,a.AbsoluteSize
+    local p2,s2=b.AbsolutePosition,b.AbsoluteSize
+    local gapX=math.max(0,p1.X-(p2.X+s2.X),p2.X-(p1.X+s1.X))
+    local gapY=math.max(0,p1.Y-(p2.Y+s2.Y),p2.Y-(p1.Y+s1.Y))
+    return gapX<=math.min(35,viewport.X*.055)
+        and gapY<=math.min(28,viewport.Y*.075)
+end
+
+local function build()
+    if not active then return end
+    clearGroups()
+    local buttons=collectButtons()
+    local viewport=workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize
+        or Vector2.new(812,375)
+    local counts={}
+    -- Find the smallest real group containers first; prefer the highest
+    -- compact ancestor containing the full cluster (POV/menu/whistle).
+    for _,button in ipairs(buttons) do
+        local parent=button.Parent
+        while parent and parent~=lplr.PlayerGui do
+            if parent:IsA("GuiObject") then
+                local list=counts[parent]
+                if not list then list={};counts[parent]=list end
+                list[#list+1]=button
+            end
+            parent=parent.Parent
+        end
+    end
+    local ordered={}
+    for parent,members in pairs(counts) do
+        if compactRoot(parent,members,viewport) then
+            ordered[#ordered+1]={root=parent,members=members}
+        end
+    end
+    table.sort(ordered,function(a,b)
+        if #a.members~=#b.members then return #a.members>#b.members end
+        local as,bs=a.root.AbsoluteSize,b.root.AbsoluteSize
+        return (as.X*as.Y)>(bs.X*bs.Y)
+    end)
+    local covered={}
+    local nativeCount=0
+    local virtualCount=0
+    for _,entry in ipairs(ordered) do
+        local hasCovered=false
+        for _,button in ipairs(entry.members) do
+            if covered[button] then hasCovered=true break end
+        end
+        if not hasCovered then
+            local group=newShared(entry.root,entry.members)
+            groups[#groups+1]=group
+            nativeCount+=1
+            for _,button in ipairs(entry.members) do covered[button]=true end
+        end
+    end
+    -- Fallback for same-screen siblings not inside one compact frame:
+    -- scale each whole control AND its position relative to the same pivot.
+    local remaining={}
+    for _,button in ipairs(buttons) do
+        if not covered[button] then remaining[#remaining+1]=button end
+    end
+    while #remaining>0 do
+        local seed=table.remove(remaining,1)
+        local component={seed}
+        local changed=true
+        while changed do
+            changed=false
+            for index=#remaining,1,-1 do
+                local possible=remaining[index]
+                local adjacent=false
+                for _,member in ipairs(component) do
+                    if near(member,possible,viewport) then adjacent=true break end
+                end
+                if adjacent then
+                    component[#component+1]=table.remove(remaining,index)
+                    changed=true
+                end
+            end
+        end
+        local x1,y1,x2,y2=boundsOf(component)
+        if #component<=8 and x2-x1<=viewport.X*.52
+            and y2-y1<=viewport.Y*.50 then
+            groups[#groups+1]=newVirtual(component)
+            virtualCount+=1
+        else
+            -- Do not merge unrelated full-screen clusters.
+            for _,node in ipairs(component) do
+                groups[#groups+1]=newVirtual({node})
+                virtualCount+=1
+            end
+        end
+    end
+    for _,group in ipairs(groups) do applyGroup(group) end
+    statistics.native=nativeCount
+    statistics.virtual=virtualCount
+    statistics.buttons=#buttons
+    statistics.rebuilds+=1
+end
+
+local function scheduleBuild()
+    if not active or pending then return end
+    pending=true
+    task.delay(.22,function()
+        pending=false
+        if active then build() end
     end)
 end
 
 local function stopScaler()
-    active = false
-    if funnycon then funnycon:Disconnect(); funnycon = nil end
-    if funnyrootcon then funnyrootcon:Disconnect(); funnyrootcon = nil end
-    restoreAll()
+    active=false
+    pending=false
+    for _,connection in ipairs(signals) do pcall(function() connection:Disconnect() end) end
+    table.clear(signals)
+    clearGroups()
 end
 
-local previousScaler = getgenv().__BloxstrapHUDScalerCleanup
-if type(previousScaler) == "function" then pcall(previousScaler) end
-getgenv().__BloxstrapHUDScalerCleanup = stopScaler
-getgenv().BloxstrapCurrentScale = currentScale
+local previous=getgenv().__BloxstrapHUDScalerCleanup
+if type(previous)=="function" then pcall(previous) end
+getgenv().__BloxstrapHUDScalerCleanup=stopScaler
+getgenv().BloxstrapCurrentScale=currentScale
 
 local function startScaler()
     stopScaler()
-    active = true
-    scanPlayerGui()
-    funnycon = lplr.PlayerGui.DescendantAdded:Connect(function(node)
-        if isCandidate(node) then
-            -- Deferral lets Evade finish assigning Size and Position first.
-            task.defer(observe, node)
-            task.delay(0.25, function()
-                if active and node.Parent then applyOne(node) end
-            end)
-        elseif node:IsA("ScreenGui") then
-            scheduleScan()
+    active=true
+    build()
+    -- Recreated interfaces / respawns trigger ONE deferred rebuild, not 60 scans/s.
+    funnycon=lplr.PlayerGui.DescendantAdded:Connect(function(node)
+        if node.Name~=TAG and not node:IsA("UIScale") then
+            scheduleBuild()
         end
     end)
-    funnyrootcon = lplr.PlayerGui.ChildAdded:Connect(scheduleScan)
-    scheduleScan()
+    listen(funnycon)
+    funnyrootcon=lplr.PlayerGui.ChildAdded:Connect(scheduleBuild)
+    listen(funnyrootcon)
 end
 
--- Optional explicit scale control. Affects ONLY buttons we own.
-getgenv().BloxstrapHUDScaler = {
-    GetScale = function() return currentScale end,
-    GetState = function() return {enabled=active, scale=currentScale,
-        resized=Stats.resized, repairs=Stats.repairs} end,
-    SetScale = function(value)
-        value = tonumber(value)
+getgenv().BloxstrapHUDScaler={
+    GetScale=function() return currentScale end,
+    GetState=function()
+        return {enabled=active,scale=currentScale,groups=#groups,
+            nativeGroups=statistics.native,virtualGroups=statistics.virtual,
+            buttons=statistics.buttons,rebuilds=statistics.rebuilds}
+    end,
+    SetScale=function(value)
+        value=tonumber(value)
         if not value then return false end
-        currentScale = math.clamp(value, MIN_SCALE, 1)
-        getgenv().BloxstrapCurrentScale = currentScale
+        currentScale=math.clamp(value,MIN_SCALE,1)
+        getgenv().BloxstrapCurrentScale=currentScale
         if active then
-            for node in pairs(records) do
-                if node.Parent then applyOne(node) end
-            end
-            scanPlayerGui()
+            for _,group in ipairs(groups) do applyGroup(group) end
         end
         return true
-    end
+    end,
+    Rebuild=function() if active then build() end end
 }
 
-local guiscale = Appearance:AddToggle({
-    Name = "GUIScaler",
-    Description = "Reduz botoes HUD reais sem mover joystick/pulo; persiste por mapa/rodada.",
-    Default = Bloxstrap.Config.GUIScale,
-    Callback = function(call)
-        Bloxstrap.UpdateConfig("GUIScale", call)
+local guiscale=Appearance:AddToggle({
+    Name="GUIScaler",
+    Description="Reduz HUD em grupos completos: botoes, textos, icones e espacos juntos.",
+    Default=Bloxstrap.Config.GUIScale,
+    Callback=function(call)
+        Bloxstrap.UpdateConfig("GUIScale",call)
         if call then startScaler() else stopScaler() end
     end
 })
