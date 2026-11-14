@@ -54,7 +54,7 @@ local source = game:HttpGet(
     true
 )
 
--- Patch 1: GUIScaler continua abaixo de 0.50, mas com passos menores depois disso.
+-- Patch 1: GUIScaler Evade Overhaul V4: direct button sizing, persistent/reversible.
 local scaleStartMarker = "local funnycon\nlocal guisets = {}"
 local scaleEndMarker = "local touchuuval = 1.2"
 
@@ -67,134 +67,264 @@ end
 
 local scalePatched = [=[
 local funnycon
+local funnyrootcon
 
--- Mantem o nivel escolhido durante recriacoes de UI/mapa.
--- Escala final configuravel: padrao 0.01, mas a UI nova recebe o nivel atual,
--- nao volta para 0.75 nem reinicia a sequencia.
-local MIN_SCALE = tonumber(getgenv().BloxstrapMinScale) or 0.01
-MIN_SCALE = math.clamp(MIN_SCALE, 0.01, 1)
+-- V4: the Evade Overhaul HUD uses buttons INSIDE ScreenGui.
+-- Resize the actual GuiObjects, not the ScreenGui container.
+-- MoverBotoes V50 demonstrated that button.Size works on the new HUD.
+local MIN_SCALE = math.clamp(tonumber(getgenv().BloxstrapMinScale) or 0.01, 0.01, 1)
+local currentScale = math.clamp(tonumber(getgenv().BloxstrapCurrentScale) or 0.45, MIN_SCALE, 1)
+local TAG = "__BloxstrapUnlimitedScale"
+local active = false
+local pendingScan = false
+local records = setmetatable({}, {__mode = "k"})
+local watching = setmetatable({}, {__mode = "k"})
+local watchedConnections = {}
+local Stats = {resized = 0, skipped = 0, repairs = 0}
 
-local scaleLevels = {1, 0.75, 0.50, 0.45, 0.30, 0.20, 0.10, 0.05, MIN_SCALE}
--- Preset fixo: tres passos a partir de 1.0 = 0.45; nao acumula entre execucoes.
-local currentScale = 0.45
-getgenv().BloxstrapCurrentScale = currentScale
-
-local function nextScale(current)
-    local nearestIndex = 1
-    local nearestDistance = math.huge
-    for i, level in ipairs(scaleLevels) do
-        local distance = math.abs(level - current)
-        if distance < nearestDistance then
-            nearestDistance = distance
-            nearestIndex = i
-        end
-    end
-    local nextIndex = math.min(nearestIndex + 1, #scaleLevels)
-    return scaleLevels[nextIndex]
-end
-
-local protectedTouchNames = {
-    pcjoystick = true, pcjump = true,
-    dynamicthumbstickframe = true, thumbstickframe = true,
-    touchthumbstick = true, jumpbutton = true, touchjump = true,
+local protectedNames = {
+    touchgui=true, touchcontrolframe=true, pcjoystick=true, pcjump=true,
+    dynamicthumbstickframe=true, thumbstickframe=true,
+    touchthumbstick=true, jumpbutton=true, touchjump=true,
+    jumpcontrol=true, joystick=true, thumbstick=true, jump=true,
+    perfectuimanager_ui=true, perfectuimanager_shield=true,
+    pckeyboardtouchbridgev52overlay=true,
 }
+local hudTokens = {"hud", "mobile", "control", "hotbar", "action",
+    "emote", "crouch", "sprint", "slide", "dash", "interact", "carry",
+    "equip", "backpack"}
 
-local function isProtectedTouchControl(node)
-    return node and protectedTouchNames[string.lower(node.Name)] == true
+local function excluded(node)
+    local cursor = node
+    while cursor and cursor ~= lplr.PlayerGui do
+        local name = string.lower(cursor.Name)
+        if protectedNames[name]
+            or string.find(name, "bloxstrap", 1, true)
+            or string.find(name, "delta", 1, true)
+            or string.find(name, "perfectuimanager", 1, true)
+            or string.find(name, "pcmovement", 1, true)
+        then return true end
+        cursor = cursor.Parent
+    end
+    return cursor ~= lplr.PlayerGui
 end
 
-local function containsProtectedTouchControl(node)
-    for _, descendant in ipairs(node:GetDescendants()) do
-        if isProtectedTouchControl(descendant) then return true end
+local function isCandidate(node)
+    if not node or not node:IsA("GuiObject") then return false end
+    if node:IsA("GuiButton") then return true end
+    local name = string.lower(node.Name)
+    if (string.find(name, "button", 1, true)
+        or string.find(name, "action", 1, true)
+        or string.find(name, "emote", 1, true))
+        and not node:FindFirstChildWhichIsA("GuiButton", true) then
+        return true
     end
     return false
 end
 
-local function applyScaleToObject(node, scale)
-    if not node or isProtectedTouchControl(node) then return end
-    -- Nunca altere UIScale de descendentes: isso causa escalas multiplicadas
-    -- em cada inicializacao e faz os botoes desaparecerem.
-    local uiscale = node:FindFirstChild("__BloxstrapUnlimitedScale")
-    if not uiscale or not uiscale:IsA("UIScale") then
-        uiscale = Instance.new("UIScale")
-        uiscale.Name = "__BloxstrapUnlimitedScale"
-        uiscale.Parent = node
+local function isHudSized(node)
+    if excluded(node) or not node.Visible then return false end
+    local camera = workspace.CurrentCamera
+    local viewport = camera and camera.ViewportSize or Vector2.new(800, 450)
+    local size = node.AbsoluteSize
+    if size.X < 5 or size.Y < 5 or viewport.X < 50 or viewport.Y < 50
+        or size.X > viewport.X * 0.34 or size.Y > viewport.Y * 0.36 then
+        return false
     end
-    uiscale.Scale = scale
+
+    -- Keep menus, full-screen windows, inventory lists and emote panels intact.
+    -- Pick individual floating HUD buttons (as MoverBotoes does), not their roots.
+    local pos = node.AbsolutePosition
+    local edge = pos.X < viewport.X * 0.23
+        or pos.X + size.X > viewport.X * 0.77
+        or pos.Y < viewport.Y * 0.24
+        or pos.Y + size.Y > viewport.Y * 0.76
+    local hint = false
+    local parent = node
+    while parent and parent ~= lplr.PlayerGui do
+        local name = string.lower(parent.Name)
+        for _, token in ipairs(hudTokens) do
+            if string.find(name, token, 1, true) then
+                hint = true
+                break
+            end
+        end
+        if hint then break end
+        parent = parent.Parent
+    end
+    return edge or hint
 end
 
-local function scaleTouchGuiNode(node, scale)
-    if isProtectedTouchControl(node) then return end
-    if containsProtectedTouchControl(node) then
-        for _, child in ipairs(node:GetChildren()) do
-            scaleTouchGuiNode(child, scale)
+local function scaledSize(original, factor)
+    return UDim2.new(original.X.Scale * factor, original.X.Offset * factor,
+        original.Y.Scale * factor, original.Y.Offset * factor)
+end
+
+local function restoreOne(node, rec)
+    if not node.Parent then return end
+    rec.busy = true
+    if rec.method == "size" then
+        -- Respect a custom size that MoverBotoes may have set afterward.
+        if node.Size == rec.applied then node.Size = rec.original end
+    elseif rec.method == "uiscale" and rec.scaler and rec.scaler.Parent then
+        rec.scaler:Destroy()
+    end
+    rec.busy = false
+end
+
+local function restoreAll()
+    for node, rec in pairs(records) do
+        pcall(restoreOne, node, rec)
+    end
+    for node, list in pairs(watching) do
+        for _, connection in ipairs(list) do
+            pcall(function() connection:Disconnect() end)
         end
+        watching[node] = nil
+    end
+    records = setmetatable({}, {__mode = "k"})
+end
+
+local function applyOne(node)
+    if not active or not isCandidate(node) or not isHudSized(node) then
         return
     end
-    if node:IsA("GuiObject") then
-        applyScaleToObject(node, scale)
+    local rec = records[node]
+    if not rec then
+        local native = node.Size
+        -- The real button may be laid out visually before Size is assigned.
+        if native == UDim2.new(0, 0, 0, 0) then
+            native = UDim2.fromOffset(node.AbsoluteSize.X, node.AbsoluteSize.Y)
+        end
+        rec = {original=native, method="size", applied=nil, busy=false}
+        local parent = node.Parent
+        local layout = parent and parent:FindFirstChildWhichIsA("UIGridStyleLayout")
+        if layout then
+            -- GridLayout owns Size. Scale only THIS button, never the full grid.
+            rec.method = "uiscale"
+        end
+        records[node] = rec
+        Stats.resized += 1
+    end
+    if rec.busy then return end
+    rec.busy = true
+    if rec.method == "size" then
+        local requested = scaledSize(rec.original, currentScale)
+        -- Do not overwrite manual resizing by MoverBotoes.
+        if rec.applied == nil or node.Size == rec.applied or node.Size == rec.original then
+            node.Size = requested
+            rec.applied = requested
+        end
     else
-        for _, child in ipairs(node:GetChildren()) do
-            scaleTouchGuiNode(child, scale)
+        if not rec.scaler or not rec.scaler.Parent then
+            rec.scaler = Instance.new("UIScale")
+            rec.scaler.Name = TAG
+            rec.scaler.Parent = node
         end
+        rec.scaler.Scale = currentScale
     end
+    rec.busy = false
 end
 
-local function scalePlayerGui(v, scale)
-    if not v then return end
-    if v.Name == "TouchGui" then
-        for _, child in ipairs(v:GetChildren()) do
-            scaleTouchGuiNode(child, scale)
+local function observe(node)
+    if not isCandidate(node) or watching[node] or excluded(node) then return end
+    local listeners = {}
+    watching[node] = listeners
+    listeners[#listeners+1] = node:GetPropertyChangedSignal("Visible"):Connect(function()
+        if active and node.Visible then task.defer(applyOne, node) end
+    end)
+    listeners[#listeners+1] = node:GetPropertyChangedSignal("Size"):Connect(function()
+        if not active then return end
+        local rec = records[node]
+        if rec and not rec.busy and rec.method == "size" and node.Size == rec.original then
+            -- The game reset an existing control after a round; reapply once.
+            Stats.repairs += 1
+            task.defer(function()
+                if active and node.Parent and node.Size == rec.original then applyOne(node) end
+            end)
+        elseif not rec then
+            task.defer(applyOne, node)
         end
-        return
-    end
-    local hasCustomMovementControls = false
-    pcall(function()
-        hasCustomMovementControls =
-            v:FindFirstChild("PCJoystick", true) ~= nil
-            or v:FindFirstChild("PCJump", true) ~= nil
     end)
-    if v.Name == "PCKeyboardTouchBridgeV52Overlay" or hasCustomMovementControls then
-        return
-    end
-    applyScaleToObject(v, scale)
+    applyOne(node)
 end
 
-local function disconnectScaler()
-    pcall(function()
-        if funnycon then funnycon:Disconnect(); funnycon = nil end
+local function scanPlayerGui()
+    if not active then return end
+    for _, node in ipairs(lplr.PlayerGui:GetDescendants()) do
+        if isCandidate(node) then observe(node) end
+    end
+end
+
+local function scheduleScan()
+    if not active or pendingScan then return end
+    pendingScan = true
+    task.delay(0.16, function()
+        pendingScan = false
+        if active then scanPlayerGui() end
     end)
 end
 
-local function applyScalePass(scale)
-    for _, v in ipairs(lplr.PlayerGui:GetChildren()) do
-        scalePlayerGui(v, scale)
-    end
+local function stopScaler()
+    active = false
+    if funnycon then funnycon:Disconnect(); funnycon = nil end
+    if funnyrootcon then funnyrootcon:Disconnect(); funnyrootcon = nil end
+    restoreAll()
 end
+
+local previousScaler = getgenv().__BloxstrapHUDScalerCleanup
+if type(previousScaler) == "function" then pcall(previousScaler) end
+getgenv().__BloxstrapHUDScalerCleanup = stopScaler
+getgenv().BloxstrapCurrentScale = currentScale
+
+local function startScaler()
+    stopScaler()
+    active = true
+    scanPlayerGui()
+    funnycon = lplr.PlayerGui.DescendantAdded:Connect(function(node)
+        if isCandidate(node) then
+            -- Deferral lets Evade finish assigning Size and Position first.
+            task.defer(observe, node)
+            task.delay(0.25, function()
+                if active and node.Parent then applyOne(node) end
+            end)
+        elseif node:IsA("ScreenGui") then
+            scheduleScan()
+        end
+    end)
+    funnyrootcon = lplr.PlayerGui.ChildAdded:Connect(scheduleScan)
+    scheduleScan()
+end
+
+-- Optional explicit scale control. Affects ONLY buttons we own.
+getgenv().BloxstrapHUDScaler = {
+    GetScale = function() return currentScale end,
+    GetState = function() return {enabled=active, scale=currentScale,
+        resized=Stats.resized, repairs=Stats.repairs} end,
+    SetScale = function(value)
+        value = tonumber(value)
+        if not value then return false end
+        currentScale = math.clamp(value, MIN_SCALE, 1)
+        getgenv().BloxstrapCurrentScale = currentScale
+        if active then
+            for node in pairs(records) do
+                if node.Parent then applyOne(node) end
+            end
+            scanPlayerGui()
+        end
+        return true
+    end
+}
 
 local guiscale = Appearance:AddToggle({
     Name = "GUIScaler",
-    Description = "Cada ativacao avanca um nivel; UIs recriadas mantem o ultimo nivel escolhido.",
+    Description = "Reduz botoes HUD reais sem mover joystick/pulo; persiste por mapa/rodada.",
     Default = Bloxstrap.Config.GUIScale,
     Callback = function(call)
         Bloxstrap.UpdateConfig("GUIScale", call)
-        if call then
-            disconnectScaler()
-            -- Aplica o preset fixo de tres passos e para; nao avanca novamente.
-            getgenv().BloxstrapCurrentScale = currentScale
-            applyScalePass(currentScale)
-            funnycon = lplr.PlayerGui.ChildAdded:Connect(function(v)
-                task.defer(function()
-                    -- Reutiliza o ultimo nivel selecionado; nao avanca de novo.
-                    scalePlayerGui(v, currentScale)
-                end)
-            end)
-        else
-            disconnectScaler()
-        end
+        if call then startScaler() else stopScaler() end
     end
 })
-
 ]=]
 
 source = string.sub(source, 1, scaleStartPos - 1)
