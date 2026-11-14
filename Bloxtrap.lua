@@ -90,7 +90,7 @@ local PROTECT={
     ["perfectuimanager_ui"]=true,["perfectuimanager_shield"]=true,
     ["pckeyboardtouchbridgev52overlay"]=true
 }
-local HUD_HINTS={"hud","mobile","control","action","button","hotbar",
+local HUD_HINTS={"hud","mobile","control","action","hotbar",
     "pov","whistle","apito","crouch","sprint","slide","dash",
     "interact","carry","equip","backpack"}
 local PANEL_HINTS={"panel","window","popup","settings","shop","inventory",
@@ -283,16 +283,19 @@ local function applyGroup(group)
 end
 
 local function newShared(root,members)
-    return {name=root.Name,kind="shared",
+    local memberNames={}
+    for _,node in ipairs(members) do memberNames[#memberNames+1]=node.Name end
+    return {name=root.Name,kind="shared",memberNames=memberNames,
         items={{node=root,kind="shared"}},buttons=#members,
         pivotX=0,pivotY=0}
 end
 
 local function newVirtual(members)
     local x1,y1,x2,y2=boundsOf(members)
-    local group={name="cluster",kind="virtual",items={},buttons=#members,
+    local group={name="cluster",kind="virtual",items={},buttons=#members,memberNames={},
         pivotX=(x1+x2)*.5,pivotY=(y1+y2)*.5}
     for _,node in ipairs(members) do
+        group.memberNames[#group.memberNames+1]=node.Name
         local p,s=node.AbsolutePosition,node.AbsoluteSize
         group.items[#group.items+1]={
             node=node,kind="virtual",originalPosition=node.Position,
@@ -457,7 +460,15 @@ getgenv().BloxstrapHUDScaler={
         end
         return true
     end,
-    Rebuild=function() if active then build() end end
+    Rebuild=function() if active then build() end end,
+    GetGroups=function()
+        local result={}
+        for index,group in ipairs(groups) do
+            result[index]={kind=group.kind,name=group.name,
+                buttons=group.buttons,members=table.clone(group.memberNames)}
+        end
+        return result
+    end
 }
 
 local guiscale=Appearance:AddToggle({
